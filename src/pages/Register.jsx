@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { supabase } from '../supabase'
 
 const CLASSES = [
   { id: 'K1',  label: 'K1 — Siput (1-2 thn)' },
@@ -68,7 +69,42 @@ function Register() {
       }
     }
     setLoading(true)
-    setTimeout(() => { setLoading(false); setSubmitted(true) }, 1500)
+    try {
+      // Save parent info
+      const { data: reg, error: regError } = await supabase
+        .from('registrations')
+        .insert({
+          parent_name: parent.name,
+          address: parent.address,
+          phone: parent.phone,
+          email: parent.email
+        })
+        .select()
+        .single()
+
+      if (regError) throw regError
+
+      // Save each child
+      const childRows = children.map(child => ({
+        registration_id: reg.id,
+        child_name: child.name,
+        date_of_birth: child.dob,
+        gender: child.gender,
+        classes: child.classes
+      }))
+
+      const { error: childError } = await supabase
+        .from('children')
+        .insert(childRows)
+
+      if (childError) throw childError
+
+      setSubmitted(true)
+    } catch (error) {
+      alert('Terjadi kesalahan. Coba lagi.\nSomething went wrong. Please try again.\n\n' + error.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const resetForm = () => {
