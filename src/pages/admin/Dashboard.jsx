@@ -148,6 +148,105 @@ function EnterResults() {
     </div>
   )
 }
+function EventsManager() {
+  const [events, setEvents] = useState([])
+  const [form, setForm] = useState({ name:'', date:'', location:'', description:'', total_riders:'0' })
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => { fetchEvents() }, [])
+
+  const fetchEvents = async () => {
+    const { data } = await supabase
+      .from('events').select('*')
+      .order('created_at', { ascending: false })
+    setEvents(data || [])
+  }
+
+  const handleSave = async () => {
+    if (!form.name || !form.date || !form.location) {
+      setMessage('❌ Fill in name, date and location!')
+      return
+    }
+    setSaving(true)
+    const { error } = await supabase.from('events').insert({
+      name: form.name, date: form.date,
+      location: form.location, description: form.description,
+      total_riders: parseInt(form.total_riders) || 0,
+      status: 'completed'
+    })
+    if (error) setMessage('❌ ' + error.message)
+    else {
+      setMessage('✅ Event saved!')
+      setForm({ name:'', date:'', location:'', description:'', total_riders:'0' })
+      fetchEvents()
+    }
+    setSaving(false)
+    setTimeout(() => setMessage(''), 3000)
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this event?')) return
+    await supabase.from('events').delete().eq('id', id)
+    fetchEvents()
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <h3 className="text-yellow-400 font-black mb-4">➕ Add Past Event</h3>
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+            {message}
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {[
+            { key:'name', label:'Event Name', placeholder:'Championship 2025' },
+            { key:'date', label:'Date', placeholder:'15 Agustus 2025' },
+            { key:'location', label:'Location', placeholder:'Kupang, NTT' },
+            { key:'total_riders', label:'Total Riders', placeholder:'0' },
+          ].map(({ key, label, placeholder }) => (
+            <div key={key}>
+              <label className="text-gray-400 text-xs mb-1 block">{label}</label>
+              <input type="text" value={form[key]} placeholder={placeholder}
+                onChange={e => setForm(p => ({...p, [key]: e.target.value}))}
+                className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+            </div>
+          ))}
+          <div className="md:col-span-2">
+            <label className="text-gray-400 text-xs mb-1 block">Description</label>
+            <input type="text" value={form.description} placeholder="Brief description..."
+              onChange={e => setForm(p => ({...p, description: e.target.value}))}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+        </div>
+        <button onClick={handleSave} disabled={saving}
+          className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
+          {saving ? 'Saving...' : '💾 Save Event'}
+        </button>
+      </div>
+
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <h3 className="text-yellow-400 font-black mb-4">📖 All Events ({events.length})</h3>
+        <div className="space-y-3">
+          {events.map(event => (
+            <div key={event.id} className="bg-gray-700 rounded-xl px-4 py-3 flex justify-between items-center border border-gray-600">
+              <div>
+                <p className="text-white font-bold text-sm">{event.name}</p>
+                <p className="text-gray-400 text-xs">{event.date} · {event.location} · {event.total_riders} riders</p>
+              </div>
+              <button onClick={() => handleDelete(event.id)}
+                className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function Dashboard() {
   const { adminRole, signOut } = useAuth()
@@ -199,13 +298,13 @@ function Dashboard() {
     r.children?.some(c => c.child_name.toLowerCase().includes(search.toLowerCase()))
   )
 
-  const tabs = [
-    { id: 'registrations', label: '📋 Registrations' },
-    { id: 'schedule', label: '🏁 Race Control' },
-    { id: 'results', label: '🏆 Enter Results' },
-    { id: 'classcounts', label: '📊 Class Counts' },
-  ]
-
+const tabs = [
+  { id: 'registrations', label: '📋 Registrations' },
+  { id: 'schedule', label: '🏁 Race Control' },
+  { id: 'results', label: '🏆 Enter Results' },
+  { id: 'classcounts', label: '📊 Class Counts' },
+  { id: 'events', label: '📖 Events' },
+]
   return (
     <div className="min-h-screen bg-gray-950">
       {/* Navbar */}
@@ -326,7 +425,8 @@ function Dashboard() {
 
         {/* Enter Results Tab */}
         {activeTab === 'results' && <EnterResults />}
-
+        {/* Events Tab */}
+        {activeTab === 'events' && <EventsManager />}
         {/* Registrations Tab */}
         {activeTab === 'registrations' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
