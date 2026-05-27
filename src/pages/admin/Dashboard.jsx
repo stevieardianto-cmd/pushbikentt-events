@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../supabase'
 import { useAuth } from '../../context/AuthContext'
+import { exportRiderListPDF, exportHeatDrawPDF } from '../../components/ExportPDF'
 
 const CLASS_INFO = {
   K1:'Siput',K2:'Open',K3:'Open',K4:'Open',K5:'Open',
@@ -11,11 +12,12 @@ const CLASS_INFO = {
   K17:'Open',K18:'Open',K19:'Girls Only',K20:'FFA'
 }
 
+const CLASSES = ['K1','K2','K3','K4','K5','K6','K7','K8','K9','K10',
+                 'K11','K12','K13','K14','K15','K16','K17','K18','K19','K20']
+
+// ─── Enter Results Component ───────────────────────────────────────────────
 function EnterResults() {
-  const [form, setForm] = useState({
-    class_id:'K1', round:'Heat 1', position:'1',
-    rider_name:'', qualified:false, notes:''
-  })
+  const [form, setForm] = useState({ class_id:'K1', round:'Heat 1', position:'1', rider_name:'', qualified:false, notes:'' })
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [results, setResults] = useState([])
@@ -23,8 +25,7 @@ function EnterResults() {
   useEffect(() => { fetchResults() }, [])
 
   const fetchResults = async () => {
-    const { data } = await supabase
-      .from('results').select('*')
+    const { data } = await supabase.from('results').select('*')
       .order('class_id').order('round').order('position')
     setResults(data || [])
   }
@@ -33,14 +34,11 @@ function EnterResults() {
     if (!form.rider_name) { setMessage('❌ Enter rider name!'); return }
     setSaving(true)
     const { error } = await supabase.from('results').insert({
-      class_id: form.class_id,
-      round: form.round,
-      position: parseInt(form.position),
-      rider_name: form.rider_name,
-      qualified: form.qualified,
-      notes: form.notes
+      class_id: form.class_id, round: form.round,
+      position: parseInt(form.position), rider_name: form.rider_name,
+      qualified: form.qualified, notes: form.notes
     })
-    if (error) { setMessage('❌ Error: ' + error.message) }
+    if (error) setMessage('❌ Error: ' + error.message)
     else {
       setMessage('✅ Result saved!')
       setForm(p => ({ ...p, rider_name:'', notes:'', position: String(parseInt(p.position)+1) }))
@@ -58,7 +56,6 @@ function EnterResults() {
 
   return (
     <div className="space-y-6">
-      {/* Entry Form */}
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">➕ Add Result</h3>
         {message && (
@@ -69,22 +66,16 @@ function EnterResults() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
           <div>
             <label className="text-gray-400 text-xs mb-1 block">Class</label>
-            <select value={form.class_id}
-              onChange={e => setForm(p => ({...p, class_id: e.target.value}))}
+            <select value={form.class_id} onChange={e => setForm(p => ({...p, class_id: e.target.value}))}
               className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
-              {Object.keys(CLASS_INFO).map(k => (
-                <option key={k} value={k}>{k} — {CLASS_INFO[k]}</option>
-              ))}
+              {CLASSES.map(k => <option key={k} value={k}>{k} — {CLASS_INFO[k]}</option>)}
             </select>
           </div>
           <div>
             <label className="text-gray-400 text-xs mb-1 block">Round</label>
-            <select value={form.round}
-              onChange={e => setForm(p => ({...p, round: e.target.value}))}
+            <select value={form.round} onChange={e => setForm(p => ({...p, round: e.target.value}))}
               className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
-              {['Heat 1','Heat 2','Semi Final','Final'].map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
+              {['Heat 1','Heat 2','Semi Final','Final'].map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div>
@@ -120,8 +111,6 @@ function EnterResults() {
           </button>
         </div>
       </div>
-
-      {/* Results List */}
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">📋 Saved Results ({results.length})</h3>
         {results.length === 0 ? (
@@ -137,9 +126,7 @@ function EnterResults() {
                   {r.qualified && <span className="ml-2 text-green-400 text-xs font-bold">✅ QF</span>}
                 </div>
                 <button onClick={() => handleDelete(r.id)}
-                  className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">
-                  ✕
-                </button>
+                  className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">✕</button>
               </div>
             ))}
           </div>
@@ -148,6 +135,8 @@ function EnterResults() {
     </div>
   )
 }
+
+// ─── Heat Draw Manager Component ───────────────────────────────────────────
 function HeatDrawManager({ registrations }) {
   const [selectedClass, setSelectedClass] = useState('K1')
   const [assignments, setAssignments] = useState({})
@@ -156,103 +145,44 @@ function HeatDrawManager({ registrations }) {
   const [savedHeats, setSavedHeats] = useState([])
   const [heatCount, setHeatCount] = useState(2)
 
-  const CLASSES = ['K1','K2','K3','K4','K5','K6','K7','K8','K9','K10',
-                   'K11','K12','K13','K14','K15','K16','K17','K18','K19','K20']
-
   useEffect(() => { loadClass(selectedClass) }, [selectedClass, registrations])
 
-  const showMessage = (text) => {
-    setMessage(text)
-    setTimeout(() => setMessage(''), 4000)
-  }
+  const showMessage = (text) => { setMessage(text); setTimeout(() => setMessage(''), 4000) }
 
   const loadClass = async (cls) => {
-    // Get registered riders for this class
     const riders = registrations.flatMap(r =>
-      (r.children || [])
-        .filter(c => c.classes?.includes(cls))
-        .map(c => c.child_name)
+      (r.children || []).filter(c => c.classes?.includes(cls)).map(c => c.child_name)
     )
-
-    // Load existing saved assignments
-    const { data } = await supabase
-      .from('heats').select('*')
-      .eq('class_id', cls)
+    const { data } = await supabase.from('heats').select('*').eq('class_id', cls)
       .order('heat_number').order('lane')
     setSavedHeats(data || [])
-
-    // Pre-fill assignments from saved data
     const existing = {}
     riders.forEach(name => {
       const saved = data?.find(h => h.rider_name === name)
-      existing[name] = {
-        heat: saved ? String(saved.heat_number) : '',
-        lane: saved ? String(saved.lane) : ''
-      }
+      existing[name] = { heat: saved ? String(saved.heat_number) : '' }
     })
-
-    // Add any manually added riders not in registrations
     data?.forEach(h => {
-      if (!existing[h.rider_name]) {
-        existing[h.rider_name] = {
-          heat: String(h.heat_number),
-          lane: String(h.lane)
-        }
-      }
+      if (!existing[h.rider_name]) existing[h.rider_name] = { heat: String(h.heat_number) }
     })
-
     setAssignments(existing)
   }
 
-  const updateAssignment = (rider, field, value) => {
-    setAssignments(prev => ({
-      ...prev,
-      [rider]: { ...prev[rider], [field]: value }
-    }))
-  }
+  const updateAssignment = (rider, value) =>
+    setAssignments(prev => ({ ...prev, [rider]: { heat: value } }))
 
   const addManualRider = () => {
     const name = prompt('Enter rider name:')
     if (!name?.trim()) return
-    setAssignments(prev => ({
-      ...prev,
-      [name.trim()]: { heat: '', lane: '' }
-    }))
+    setAssignments(prev => ({ ...prev, [name.trim()]: { heat: '' } }))
   }
 
   const removeRider = (name) => {
-    setAssignments(prev => {
-      const updated = { ...prev }
-      delete updated[name]
-      return updated
-    })
-  }
-
-  const autoAssignLanes = () => {
-    const heatGroups = {}
-    Object.entries(assignments).forEach(([name, val]) => {
-      if (val.heat) {
-        if (!heatGroups[val.heat]) heatGroups[val.heat] = []
-        heatGroups[val.heat].push(name)
-      }
-    })
-    const updated = { ...assignments }
-    Object.entries(heatGroups).forEach(([heat, riders]) => {
-      riders.forEach((name, i) => {
-        updated[name] = { ...updated[name], lane: String(i + 1) }
-      })
-    })
-    setAssignments(updated)
-    showMessage('✅ Lanes auto-assigned within each heat!')
+    setAssignments(prev => { const u = { ...prev }; delete u[name]; return u })
   }
 
   const saveAll = async () => {
-    const toSave = Object.entries(assignments)
-      .filter(([_, val]) => val.heat)
-    if (toSave.length === 0) {
-      showMessage('❌ No riders assigned to any heat yet!')
-      return
-    }
+    const toSave = Object.entries(assignments).filter(([_, val]) => val.heat)
+    if (toSave.length === 0) { showMessage('❌ No riders assigned to any heat yet!'); return }
     setSaving(true)
     await supabase.from('heats').delete().eq('class_id', selectedClass)
     const heatCounters = {}
@@ -261,17 +191,12 @@ function HeatDrawManager({ registrations }) {
       .map(([name, val]) => {
         const h = parseInt(val.heat)
         heatCounters[h] = (heatCounters[h] || 0) + 1
-        return {
-          class_id: selectedClass,
-          heat_number: h,
-          rider_name: name,
-          lane: heatCounters[h]
-    }
-  })
+        return { class_id: selectedClass, heat_number: h, rider_name: name, lane: heatCounters[h] }
+      })
     const { error } = await supabase.from('heats').insert(rows)
     if (error) showMessage('❌ Error: ' + error.message)
     else {
-      showMessage(`✅ Saved ${rows.length} riders across ${[...new Set(rows.map(r => r.heat_number))].length} heats for ${selectedClass}!`)
+      showMessage(`✅ Saved ${rows.length} riders for ${selectedClass}!`)
       loadClass(selectedClass)
     }
     setSaving(false)
@@ -287,27 +212,21 @@ function HeatDrawManager({ registrations }) {
   const riders = Object.keys(assignments)
   const assignedCount = riders.filter(r => assignments[r].heat).length
   const heatNums = [...new Set(Object.values(assignments).map(v => v.heat).filter(Boolean))]
-    .sort((a,b) => parseInt(a) - parseInt(b))
+    .sort((a, b) => parseInt(a) - parseInt(b))
 
   return (
     <div className="space-y-6">
-      {/* Controls */}
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-6">✍️ Manual Heat Assignment</h3>
-
         {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${
-            message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-          }`}>
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
             {message}
           </div>
         )}
-
         <div className="flex flex-wrap gap-4 items-end mb-6">
           <div>
             <label className="text-gray-400 text-xs mb-1 block">Select Class</label>
-            <select value={selectedClass}
-              onChange={e => setSelectedClass(e.target.value)}
+            <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)}
               className="bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
               {CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
@@ -324,75 +243,59 @@ function HeatDrawManager({ registrations }) {
           </button>
         </div>
 
-        {/* Stats */}
-        <div className="flex gap-3 mb-6 flex-wrap">
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{riders.length}</div>
-            <div className="text-gray-400 text-xs">Total Riders</div>
-          </div>
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{assignedCount}</div>
-            <div className="text-gray-400 text-xs">Assigned</div>
-          </div>
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{riders.length - assignedCount}</div>
-            <div className="text-gray-400 text-xs">Unassigned</div>
-          </div>
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{heatNums.length}</div>
-            <div className="text-gray-400 text-xs">Heats Created</div>
-          </div>
+        <div className="flex gap-3 mb-4 flex-wrap">
+          {[
+            { label: 'Total Riders', value: riders.length },
+            { label: 'Assigned', value: assignedCount },
+            { label: 'Unassigned', value: riders.length - assignedCount },
+            { label: 'Heats', value: heatNums.length },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+              <div className="text-yellow-400 font-black">{value}</div>
+              <div className="text-gray-400 text-xs">{label}</div>
+            </div>
+          ))}
         </div>
 
-        {/* Rider Assignment Table */}
         {riders.length === 0 ? (
           <div className="text-center py-10 text-gray-500">
             <div className="text-4xl mb-3">👶</div>
             <p>No riders registered for {selectedClass} yet.</p>
-            <p className="text-xs mt-1">You can add riders manually using the button above.</p>
+            <p className="text-xs mt-1">Add riders manually using the button above.</p>
           </div>
         ) : (
           <div className="space-y-2">
-            {/* Header */}
             <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
-              <div className="col-span-5">Rider Name</div>
+              <div className="col-span-8">Rider Name</div>
               <div className="col-span-3">Heat #</div>
               <div className="col-span-1"></div>
             </div>
-
             {riders.map(name => (
-            <div key={name}
-              className={`grid grid-cols-12 gap-3 items-center bg-gray-700 rounded-xl px-3 py-2 border transition-colors ${
-                assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'
-              }`}>
-              <div className="col-span-8">
-                <p className="text-white font-bold text-sm">{name}</p>
-                {!assignments[name].heat && (
-                  <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>
-                )}
+              <div key={name}
+                className={`grid grid-cols-12 gap-3 items-center bg-gray-700 rounded-xl px-3 py-2 border transition-colors ${assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'}`}>
+                <div className="col-span-8">
+                  <p className="text-white font-bold text-sm">{name}</p>
+                  {!assignments[name].heat && <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>}
+                </div>
+                <div className="col-span-3">
+                  <select value={assignments[name]?.heat || ''}
+                    onChange={e => updateAssignment(name, e.target.value)}
+                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                    <option value="">— Pick —</option>
+                    {Array.from({ length: heatCount }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={String(n)}>Heat {n}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-1 flex justify-center">
+                  <button onClick={() => removeRider(name)}
+                    className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                </div>
               </div>
-              <div className="col-span-3">
-                <select
-                  value={assignments[name]?.heat || ''}
-                  onChange={e => updateAssignment(name, 'heat', e.target.value)}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
-                  <option value="">— Pick —</option>
-                  {Array.from({ length: heatCount }, (_, i) => i + 1).map(n => (
-                    <option key={n} value={String(n)}>Heat {n}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-span-1 flex justify-center">
-                <button onClick={() => removeRider(name)}
-                  className="text-red-400 hover:text-red-300 transition-colors text-sm">
-                  ✕
-                </button>
-              </div>
-            </div>            ))}
+            ))}
           </div>
         )}
 
-        {/* Action Buttons */}
         {riders.length > 0 && (
           <div className="flex gap-3 mt-6 flex-wrap">
             <button onClick={saveAll} disabled={saving}
@@ -400,26 +303,28 @@ function HeatDrawManager({ registrations }) {
               {saving ? '⏳ Saving...' : '💾 Save Heat Draw'}
             </button>
             {savedHeats.length > 0 && (
-              <button onClick={clearClass}
-                className="border border-red-400 text-red-400 font-bold px-4 py-3 rounded-xl hover:bg-red-400 hover:text-white transition-colors text-sm">
-                🗑️ Clear All Heats for {selectedClass}
-              </button>
+              <>
+                <button onClick={() => exportHeatDrawPDF(savedHeats, selectedClass)}
+                  className="border border-blue-400 text-blue-400 font-bold px-4 py-3 rounded-xl hover:bg-blue-400 hover:text-white transition-colors text-sm">
+                  🖨️ Export {selectedClass} PDF
+                </button>
+                <button onClick={clearClass}
+                  className="border border-red-400 text-red-400 font-bold px-4 py-3 rounded-xl hover:bg-red-400 hover:text-white transition-colors text-sm">
+                  🗑️ Clear {selectedClass}
+                </button>
+              </>
             )}
           </div>
         )}
       </div>
 
-      {/* Live Preview */}
       {heatNums.length > 0 && (
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-          <h3 className="text-yellow-400 font-black mb-4">
-            👁️ Preview — {selectedClass} Heat Draw
-          </h3>
+          <h3 className="text-yellow-400 font-black mb-4">👁️ Preview — {selectedClass}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {heatNums.map(heatNum => {
               const heatRiders = Object.entries(assignments)
                 .filter(([_, v]) => v.heat === heatNum)
-                .sort(([_a, a], [_b, b]) => parseInt(a.lane) - parseInt(b.lane))
               return (
                 <div key={heatNum} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
                   <div className="bg-gray-600 px-4 py-2 flex justify-between">
@@ -445,6 +350,8 @@ function HeatDrawManager({ registrations }) {
     </div>
   )
 }
+
+// ─── Events Manager Component ──────────────────────────────────────────────
 function EventsManager() {
   const [events, setEvents] = useState([])
   const [form, setForm] = useState({ name:'', date:'', location:'', description:'', total_riders:'0' })
@@ -454,23 +361,18 @@ function EventsManager() {
   useEffect(() => { fetchEvents() }, [])
 
   const fetchEvents = async () => {
-    const { data } = await supabase
-      .from('events').select('*')
-      .order('created_at', { ascending: false })
+    const { data } = await supabase.from('events').select('*').order('created_at', { ascending: false })
     setEvents(data || [])
   }
 
   const handleSave = async () => {
     if (!form.name || !form.date || !form.location) {
-      setMessage('❌ Fill in name, date and location!')
-      return
+      setMessage('❌ Fill in name, date and location!'); return
     }
     setSaving(true)
     const { error } = await supabase.from('events').insert({
-      name: form.name, date: form.date,
-      location: form.location, description: form.description,
-      total_riders: parseInt(form.total_riders) || 0,
-      status: 'completed'
+      name: form.name, date: form.date, location: form.location,
+      description: form.description, total_riders: parseInt(form.total_riders) || 0, status: 'completed'
     })
     if (error) setMessage('❌ ' + error.message)
     else {
@@ -523,7 +425,6 @@ function EventsManager() {
           {saving ? 'Saving...' : '💾 Save Event'}
         </button>
       </div>
-
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">📖 All Events ({events.length})</h3>
         <div className="space-y-3">
@@ -534,9 +435,7 @@ function EventsManager() {
                 <p className="text-gray-400 text-xs">{event.date} · {event.location} · {event.total_riders} riders</p>
               </div>
               <button onClick={() => handleDelete(event.id)}
-                className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">
-                ✕
-              </button>
+                className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">✕</button>
             </div>
           ))}
         </div>
@@ -545,6 +444,7 @@ function EventsManager() {
   )
 }
 
+// ─── Main Dashboard ────────────────────────────────────────────────────────
 function Dashboard() {
   const { adminRole, signOut } = useAuth()
   const navigate = useNavigate()
@@ -559,17 +459,14 @@ function Dashboard() {
 
   const fetchRegistrations = async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('registrations').select('*, children(*)')
+    const { data } = await supabase.from('registrations').select('*, children(*)')
       .order('created_at', { ascending: false })
     setRegistrations(data || [])
     setLoading(false)
   }
 
   const fetchSchedule = async () => {
-    const { data } = await supabase
-      .from('schedule').select('*')
-      .order('order_number', { ascending: true })
+    const { data } = await supabase.from('schedule').select('*').order('order_number')
     setSchedule(data || [])
   }
 
@@ -578,16 +475,11 @@ function Dashboard() {
     fetchSchedule()
   }
 
-  const handleSignOut = async () => {
-    await signOut()
-    navigate('/admin/login')
-  }
+  const handleSignOut = async () => { await signOut(); navigate('/admin/login') }
 
   const allChildren = registrations.flatMap(r => r.children || [])
   const allClasses = allChildren.flatMap(c => c.classes || [])
-  const classCounts = allClasses.reduce((acc, cls) => {
-    acc[cls] = (acc[cls] || 0) + 1; return acc
-  }, {})
+  const classCounts = allClasses.reduce((acc, cls) => { acc[cls] = (acc[cls]||0)+1; return acc }, {})
 
   const filtered = registrations.filter(r =>
     r.parent_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -595,17 +487,17 @@ function Dashboard() {
     r.children?.some(c => c.child_name.toLowerCase().includes(search.toLowerCase()))
   )
 
-const tabs = [
-  { id: 'registrations', label: '📋 Registrations' },
-  { id: 'schedule',      label: '🏁 Race Control' },
-  { id: 'heats',         label: '🎲 Heat Draw' },
-  { id: 'results',       label: '🏆 Enter Results' },
-  { id: 'classcounts',   label: '📊 Class Counts' },
-  { id: 'events',        label: '📖 Events' },
-]
+  const tabs = [
+    { id: 'registrations', label: '📋 Registrations' },
+    { id: 'schedule',      label: '🏁 Race Control' },
+    { id: 'heats',         label: '🎲 Heat Draw' },
+    { id: 'results',       label: '🏆 Enter Results' },
+    { id: 'classcounts',   label: '📊 Class Counts' },
+    { id: 'events',        label: '📖 Events' },
+  ]
+
   return (
     <div className="min-h-screen bg-gray-950">
-      {/* Navbar */}
       <nav className="bg-gray-900 border-b-2 border-yellow-400 px-6 py-3">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -640,10 +532,10 @@ const tabs = [
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
-            { icon: '👨‍👩‍👧', label: 'Families', value: registrations.length },
-            { icon: '🚲', label: 'Riders', value: allChildren.length },
-            { icon: '🏷️', label: 'Class Entries', value: allClasses.length },
-            { icon: '📊', label: 'Classes Active', value: Object.keys(classCounts).length },
+            { icon:'👨‍👩‍👧', label:'Families', value: registrations.length },
+            { icon:'🚲', label:'Riders', value: allChildren.length },
+            { icon:'🏷️', label:'Class Entries', value: allClasses.length },
+            { icon:'📊', label:'Classes Active', value: Object.keys(classCounts).length },
           ].map(({ icon, label, value }) => (
             <div key={label} className="bg-gray-800 rounded-2xl p-5 border border-gray-700 text-center">
               <div className="text-3xl mb-2">{icon}</div>
@@ -657,20 +549,22 @@ const tabs = [
         <div className="flex gap-1 mb-8 border-b border-gray-700 overflow-x-auto">
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-yellow-400 text-yellow-400'
-                  : 'border-transparent text-gray-400 hover:text-white'
-              }`}>
+              className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-yellow-400 text-yellow-400' : 'border-transparent text-gray-400 hover:text-white'}`}>
               {tab.label}
             </button>
           ))}
         </div>
 
-        {/* Class Counts Tab */}
+        {/* Class Counts */}
         {activeTab === 'classcounts' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-            <h2 className="text-yellow-400 font-black mb-4">📊 Riders Per Class</h2>
+            <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+              <h2 className="text-yellow-400 font-black">📊 Riders Per Class</h2>
+              <button onClick={() => exportRiderListPDF(registrations)}
+                className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-xl hover:bg-yellow-300 transition-colors text-sm">
+                🖨️ Export All Riders PDF
+              </button>
+            </div>
             {Object.keys(classCounts).length === 0 ? (
               <p className="text-gray-500 text-sm">No registrations yet.</p>
             ) : (
@@ -689,7 +583,7 @@ const tabs = [
           </div>
         )}
 
-        {/* Race Control Tab */}
+        {/* Race Control */}
         {activeTab === 'schedule' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
             <h2 className="text-yellow-400 font-black mb-6">🏁 Race Day Control</h2>
@@ -721,13 +615,11 @@ const tabs = [
           </div>
         )}
 
-        {/* Enter Results Tab */}
-        {activeTab === 'results' && <EnterResults />}
-        {/* Heat Draw Tab */}
         {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
-        {/* Events Tab */}
+        {activeTab === 'results' && <EnterResults />}
         {activeTab === 'events' && <EventsManager />}
-        {/* Registrations Tab */}
+
+        {/* Registrations */}
         {activeTab === 'registrations' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
