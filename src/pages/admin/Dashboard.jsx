@@ -148,6 +148,303 @@ function EnterResults() {
     </div>
   )
 }
+function HeatDrawManager({ registrations }) {
+  const [selectedClass, setSelectedClass] = useState('K1')
+  const [assignments, setAssignments] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [savedHeats, setSavedHeats] = useState([])
+  const [heatCount, setHeatCount] = useState(2)
+
+  const CLASSES = ['K1','K2','K3','K4','K5','K6','K7','K8','K9','K10',
+                   'K11','K12','K13','K14','K15','K16','K17','K18','K19','K20']
+
+  useEffect(() => { loadClass(selectedClass) }, [selectedClass, registrations])
+
+  const showMessage = (text) => {
+    setMessage(text)
+    setTimeout(() => setMessage(''), 4000)
+  }
+
+  const loadClass = async (cls) => {
+    // Get registered riders for this class
+    const riders = registrations.flatMap(r =>
+      (r.children || [])
+        .filter(c => c.classes?.includes(cls))
+        .map(c => c.child_name)
+    )
+
+    // Load existing saved assignments
+    const { data } = await supabase
+      .from('heats').select('*')
+      .eq('class_id', cls)
+      .order('heat_number').order('lane')
+    setSavedHeats(data || [])
+
+    // Pre-fill assignments from saved data
+    const existing = {}
+    riders.forEach(name => {
+      const saved = data?.find(h => h.rider_name === name)
+      existing[name] = {
+        heat: saved ? String(saved.heat_number) : '',
+        lane: saved ? String(saved.lane) : ''
+      }
+    })
+
+    // Add any manually added riders not in registrations
+    data?.forEach(h => {
+      if (!existing[h.rider_name]) {
+        existing[h.rider_name] = {
+          heat: String(h.heat_number),
+          lane: String(h.lane)
+        }
+      }
+    })
+
+    setAssignments(existing)
+  }
+
+  const updateAssignment = (rider, field, value) => {
+    setAssignments(prev => ({
+      ...prev,
+      [rider]: { ...prev[rider], [field]: value }
+    }))
+  }
+
+  const addManualRider = () => {
+    const name = prompt('Enter rider name:')
+    if (!name?.trim()) return
+    setAssignments(prev => ({
+      ...prev,
+      [name.trim()]: { heat: '', lane: '' }
+    }))
+  }
+
+  const removeRider = (name) => {
+    setAssignments(prev => {
+      const updated = { ...prev }
+      delete updated[name]
+      return updated
+    })
+  }
+
+  const autoAssignLanes = () => {
+    const heatGroups = {}
+    Object.entries(assignments).forEach(([name, val]) => {
+      if (val.heat) {
+        if (!heatGroups[val.heat]) heatGroups[val.heat] = []
+        heatGroups[val.heat].push(name)
+      }
+    })
+    const updated = { ...assignments }
+    Object.entries(heatGroups).forEach(([heat, riders]) => {
+      riders.forEach((name, i) => {
+        updated[name] = { ...updated[name], lane: String(i + 1) }
+      })
+    })
+    setAssignments(updated)
+    showMessage('✅ Lanes auto-assigned within each heat!')
+  }
+
+  const saveAll = async () => {
+    const toSave = Object.entries(assignments)
+      .filter(([_, val]) => val.heat)
+    if (toSave.length === 0) {
+      showMessage('❌ No riders assigned to any heat yet!')
+      return
+    }
+    setSaving(true)
+    await supabase.from('heats').delete().eq('class_id', selectedClass)
+    const heatCounters = {}
+    const rows = toSave
+      .sort(([_a, a], [_b, b]) => parseInt(a.heat) - parseInt(b.heat))
+      .map(([name, val]) => {
+        const h = parseInt(val.heat)
+        heatCounters[h] = (heatCounters[h] || 0) + 1
+        return {
+          class_id: selectedClass,
+          heat_number: h,
+          rider_name: name,
+          lane: heatCounters[h]
+    }
+  })
+    const { error } = await supabase.from('heats').insert(rows)
+    if (error) showMessage('❌ Error: ' + error.message)
+    else {
+      showMessage(`✅ Saved ${rows.length} riders across ${[...new Set(rows.map(r => r.heat_number))].length} heats for ${selectedClass}!`)
+      loadClass(selectedClass)
+    }
+    setSaving(false)
+  }
+
+  const clearClass = async () => {
+    if (!confirm(`Clear all heat assignments for ${selectedClass}?`)) return
+    await supabase.from('heats').delete().eq('class_id', selectedClass)
+    showMessage(`✅ Cleared ${selectedClass}`)
+    loadClass(selectedClass)
+  }
+
+  const riders = Object.keys(assignments)
+  const assignedCount = riders.filter(r => assignments[r].heat).length
+  const heatNums = [...new Set(Object.values(assignments).map(v => v.heat).filter(Boolean))]
+    .sort((a,b) => parseInt(a) - parseInt(b))
+
+  return (
+    <div className="space-y-6">
+      {/* Controls */}
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <h3 className="text-yellow-400 font-black mb-6">✍️ Manual Heat Assignment</h3>
+
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${
+            message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+          }`}>
+            {message}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-4 items-end mb-6">
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Select Class</label>
+            <select value={selectedClass}
+              onChange={e => setSelectedClass(e.target.value)}
+              className="bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
+              {CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Number of Heats</label>
+            <input type="number" min="1" max="10" value={heatCount}
+              onChange={e => setHeatCount(parseInt(e.target.value))}
+              className="w-24 bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+          <button onClick={addManualRider}
+            className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
+            ➕ Add Rider Manually
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="flex gap-3 mb-6 flex-wrap">
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{riders.length}</div>
+            <div className="text-gray-400 text-xs">Total Riders</div>
+          </div>
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{assignedCount}</div>
+            <div className="text-gray-400 text-xs">Assigned</div>
+          </div>
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{riders.length - assignedCount}</div>
+            <div className="text-gray-400 text-xs">Unassigned</div>
+          </div>
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{heatNums.length}</div>
+            <div className="text-gray-400 text-xs">Heats Created</div>
+          </div>
+        </div>
+
+        {/* Rider Assignment Table */}
+        {riders.length === 0 ? (
+          <div className="text-center py-10 text-gray-500">
+            <div className="text-4xl mb-3">👶</div>
+            <p>No riders registered for {selectedClass} yet.</p>
+            <p className="text-xs mt-1">You can add riders manually using the button above.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+              <div className="col-span-5">Rider Name</div>
+              <div className="col-span-3">Heat #</div>
+              <div className="col-span-1"></div>
+            </div>
+
+            {riders.map(name => (
+            <div key={name}
+              className={`grid grid-cols-12 gap-3 items-center bg-gray-700 rounded-xl px-3 py-2 border transition-colors ${
+                assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'
+              }`}>
+              <div className="col-span-8">
+                <p className="text-white font-bold text-sm">{name}</p>
+                {!assignments[name].heat && (
+                  <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>
+                )}
+              </div>
+              <div className="col-span-3">
+                <select
+                  value={assignments[name]?.heat || ''}
+                  onChange={e => updateAssignment(name, 'heat', e.target.value)}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                  <option value="">— Pick —</option>
+                  {Array.from({ length: heatCount }, (_, i) => i + 1).map(n => (
+                    <option key={n} value={String(n)}>Heat {n}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-1 flex justify-center">
+                <button onClick={() => removeRider(name)}
+                  className="text-red-400 hover:text-red-300 transition-colors text-sm">
+                  ✕
+                </button>
+              </div>
+            </div>            ))}
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        {riders.length > 0 && (
+          <div className="flex gap-3 mt-6 flex-wrap">
+            <button onClick={saveAll} disabled={saving}
+              className="bg-yellow-400 text-gray-900 font-black px-8 py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
+              {saving ? '⏳ Saving...' : '💾 Save Heat Draw'}
+            </button>
+            {savedHeats.length > 0 && (
+              <button onClick={clearClass}
+                className="border border-red-400 text-red-400 font-bold px-4 py-3 rounded-xl hover:bg-red-400 hover:text-white transition-colors text-sm">
+                🗑️ Clear All Heats for {selectedClass}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Live Preview */}
+      {heatNums.length > 0 && (
+        <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+          <h3 className="text-yellow-400 font-black mb-4">
+            👁️ Preview — {selectedClass} Heat Draw
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {heatNums.map(heatNum => {
+              const heatRiders = Object.entries(assignments)
+                .filter(([_, v]) => v.heat === heatNum)
+                .sort(([_a, a], [_b, b]) => parseInt(a.lane) - parseInt(b.lane))
+              return (
+                <div key={heatNum} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
+                  <div className="bg-gray-600 px-4 py-2 flex justify-between">
+                    <h4 className="text-yellow-400 font-black">Heat {heatNum}</h4>
+                    <span className="text-gray-400 text-xs font-bold">{heatRiders.length} riders</span>
+                  </div>
+                  <div className="divide-y divide-gray-600">
+                    {heatRiders.map(([name], idx) => (
+                      <div key={name} className="px-4 py-2 flex items-center gap-3">
+                        <div className="w-6 h-6 bg-gray-600 text-gray-300 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0">
+                          {idx + 1}
+                        </div>
+                        <p className="text-white font-bold text-sm">{name}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 function EventsManager() {
   const [events, setEvents] = useState([])
   const [form, setForm] = useState({ name:'', date:'', location:'', description:'', total_riders:'0' })
@@ -300,10 +597,11 @@ function Dashboard() {
 
 const tabs = [
   { id: 'registrations', label: '📋 Registrations' },
-  { id: 'schedule', label: '🏁 Race Control' },
-  { id: 'results', label: '🏆 Enter Results' },
-  { id: 'classcounts', label: '📊 Class Counts' },
-  { id: 'events', label: '📖 Events' },
+  { id: 'schedule',      label: '🏁 Race Control' },
+  { id: 'heats',         label: '🎲 Heat Draw' },
+  { id: 'results',       label: '🏆 Enter Results' },
+  { id: 'classcounts',   label: '📊 Class Counts' },
+  { id: 'events',        label: '📖 Events' },
 ]
   return (
     <div className="min-h-screen bg-gray-950">
@@ -425,6 +723,8 @@ const tabs = [
 
         {/* Enter Results Tab */}
         {activeTab === 'results' && <EnterResults />}
+        {/* Heat Draw Tab */}
+        {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
         {/* Events Tab */}
         {activeTab === 'events' && <EventsManager />}
         {/* Registrations Tab */}

@@ -6,6 +6,7 @@ const navLinks = [
   { to: '/classes',  label: '🏷️ Classes' },
   { to: '/register', label: '📝 Register' },
   { to: '/schedule', label: '📅 Schedule' },
+  { to: '/heats',    label: '🎲 Heat Draw' },
   { to: '/results',  label: '🏆 Results' },
   { to: '/history',  label: '📖 History' },
 ]
