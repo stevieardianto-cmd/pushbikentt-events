@@ -9,6 +9,7 @@ import Register from './pages/Register'
 import Schedule from './pages/Schedule'
 import Results from './pages/Results'
 import Heats from './pages/Heats'
+import Gallery from './pages/Gallery'
 import Login from './pages/admin/Login'
 import Dashboard from './pages/admin/Dashboard'
 import ManageAdmins from './pages/admin/ManageAdmins'
@@ -34,6 +35,8 @@ function App() {
           <Route path="/register" element={<PublicLayout><Register /></PublicLayout>} />
           <Route path="/schedule" element={<PublicLayout><Schedule /></PublicLayout>} />
           <Route path="/results" element={<PublicLayout><Results /></PublicLayout>} />
+          <Route path="/heats" element={<PublicLayout><Heats /></PublicLayout>} />
+          <Route path="/gallery" element={<PublicLayout><Gallery /></PublicLayout>} />
           <Route path="/history" element={<PublicLayout><History /></PublicLayout>} />
 
           {/* Admin Routes */}

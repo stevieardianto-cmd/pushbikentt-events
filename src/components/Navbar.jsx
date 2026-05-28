@@ -8,6 +8,7 @@ const navLinks = [
   { to: '/schedule', label: '📅 Schedule' },
   { to: '/heats',    label: '🎲 Heat Draw' },
   { to: '/results',  label: '🏆 Results' },
+  { to: '/gallery',  label: '📸 Gallery' },
   { to: '/history',  label: '📖 History' },
 ]
 

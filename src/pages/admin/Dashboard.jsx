@@ -352,6 +352,125 @@ function HeatDrawManager({ registrations }) {
 }
 
 // ─── Events Manager Component ──────────────────────────────────────────────
+function GalleryManager() {
+  const [photos, setPhotos] = useState([])
+  const [form, setForm] = useState({ title:'', image_url:'', event_name:'', year:'2025' })
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => { fetchPhotos() }, [])
+
+  const fetchPhotos = async () => {
+    const { data } = await supabase.from('gallery').select('*')
+      .order('created_at', { ascending: false })
+    setPhotos(data || [])
+  }
+
+  const handleSave = async () => {
+    if (!form.title || !form.image_url) {
+      setMessage('❌ Title and image URL are required!'); return
+    }
+    setSaving(true)
+    const { error } = await supabase.from('gallery').insert({
+      title: form.title, image_url: form.image_url,
+      event_name: form.event_name, year: parseInt(form.year)
+    })
+    if (error) setMessage('❌ ' + error.message)
+    else {
+      setMessage('✅ Photo added!')
+      setForm({ title:'', image_url:'', event_name:'', year:'2025' })
+      fetchPhotos()
+    }
+    setSaving(false)
+    setTimeout(() => setMessage(''), 3000)
+  }
+
+  const handleDelete = async (id) => {
+    if (!confirm('Delete this photo?')) return
+    await supabase.from('gallery').delete().eq('id', id)
+    fetchPhotos()
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <h3 className="text-yellow-400 font-black mb-4">➕ Add Photo</h3>
+        <p className="text-gray-400 text-xs mb-4">
+          💡 Upload photos to Google Drive, Imgur, or any image host and paste the direct image URL here.
+        </p>
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+            {message}
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Photo Title *</label>
+            <input type="text" value={form.title} placeholder="e.g. K1 Final Race"
+              onChange={e => setForm(p => ({...p, title: e.target.value}))}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Year</label>
+            <input type="number" value={form.year}
+              onChange={e => setForm(p => ({...p, year: e.target.value}))}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-gray-400 text-xs mb-1 block">Image URL *</label>
+            <input type="url" value={form.image_url} placeholder="https://..."
+              onChange={e => setForm(p => ({...p, image_url: e.target.value}))}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="text-gray-400 text-xs mb-1 block">Event Name</label>
+            <input type="text" value={form.event_name} placeholder="e.g. Championship 2025"
+              onChange={e => setForm(p => ({...p, event_name: e.target.value}))}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+        </div>
+
+        {form.image_url && (
+          <div className="mb-4">
+            <p className="text-gray-400 text-xs mb-2">Preview:</p>
+            <img src={form.image_url} alt="preview"
+              className="h-32 w-32 object-cover rounded-xl border border-gray-600"
+              onError={e => { e.target.src = 'https://placehold.co/128x128/1f2937/facc15?text=❌' }} />
+          </div>
+        )}
+
+        <button onClick={handleSave} disabled={saving}
+          className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
+          {saving ? 'Saving...' : '💾 Add Photo'}
+        </button>
+      </div>
+
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <h3 className="text-yellow-400 font-black mb-4">📸 All Photos ({photos.length})</h3>
+        {photos.length === 0 ? (
+          <p className="text-gray-500 text-sm">No photos yet.</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {photos.map(photo => (
+              <div key={photo.id} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
+                <img src={photo.image_url} alt={photo.title}
+                  className="w-full aspect-square object-cover"
+                  onError={e => { e.target.src = 'https://placehold.co/200x200/1f2937/facc15?text=📸' }} />
+                <div className="p-3">
+                  <p className="text-white font-bold text-xs truncate">{photo.title}</p>
+                  <button onClick={() => handleDelete(photo.id)}
+                    className="text-red-400 hover:text-red-300 text-xs mt-2 font-bold">
+                    ✕ Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 function EventsManager() {
   const [events, setEvents] = useState([])
   const [form, setForm] = useState({ name:'', date:'', location:'', description:'', total_riders:'0' })
@@ -617,6 +736,7 @@ function Dashboard() {
 
         {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
         {activeTab === 'results' && <EnterResults />}
+        {activeTab === 'gallery' && <GalleryManager />}
         {activeTab === 'events' && <EventsManager />}
 
         {/* Registrations */}
