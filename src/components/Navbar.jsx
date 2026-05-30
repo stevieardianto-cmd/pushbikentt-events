@@ -42,11 +42,13 @@ function Navbar() {
           ))}
         </div>
 
-        {/* Desktop Register Button */}
-        <Link to="/register"
-          className="hidden md:block bg-yellow-400 text-gray-900 font-black px-4 py-2 rounded-full text-xs hover:bg-yellow-300 transition-colors">
-          🏁 DAFTAR / REGISTER
-        </Link>
+        {/* Desktop Buttons */}
+        <div className="hidden md:flex items-center gap-3">
+           <Link to="/admin"
+            className="border border-gray-600 text-gray-400 font-bold px-4 py-2 rounded-full text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors">
+            🔐 Admin
+          </Link>
+        </div>
 
         {/* Mobile Hamburger Button */}
         <button

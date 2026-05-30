@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 function Home() {
   const [timeLeft, setTimeLeft] = useState({})
-  const eventDate = new Date('2025-08-15T08:00:00')
+  const eventDate = new Date('2026-06-20T08:00:00')
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -30,7 +30,7 @@ function Home() {
           KUPANG · NUSA TENGGARA TIMUR
         </p>
         <h2 className="text-5xl font-black mb-3">PUSHBIKE KUPANG-NTT</h2>
-        <h3 className="text-2xl font-bold text-yellow-400 mb-4">RACING CHAMPIONSHIP 2025</h3>
+        <h3 className="text-2xl font-bold text-yellow-400 mb-4">RACING CHAMPIONSHIP 2026</h3>
         <p className="text-gray-400 mb-10 text-lg">
           Kejuaraan balap push bike terbesar untuk anak-anak di NTT
         </p>
@@ -69,20 +69,20 @@ function Home() {
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 text-center hover:border-yellow-400 transition-colors">
           <div className="text-4xl mb-4">📅</div>
           <h4 className="text-yellow-400 font-bold mb-2">Tanggal / Date</h4>
-          <p className="text-white font-semibold">15 Agustus 2025</p>
-          <p className="text-gray-400 text-sm">08:00 - 17:00 WITA</p>
+          <p className="text-white font-semibold">20-21 Juni 2026</p>
+          <p className="text-gray-400 text-sm">15:00 - 21:00 WITA</p>
         </div>
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 text-center hover:border-yellow-400 transition-colors">
           <div className="text-4xl mb-4">📍</div>
           <h4 className="text-yellow-400 font-bold mb-2">Lokasi / Location</h4>
-          <p className="text-white font-semibold">Kupang, NTT</p>
-          <p className="text-gray-400 text-sm">Venue TBA</p>
+          <p className="text-white font-semibold">Halaman Depan Kantor Gubernur</p>
+          <p className="text-gray-400 text-sm">Jl. El Tari Kupang, NTT</p>
         </div>
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 text-center hover:border-yellow-400 transition-colors">
           <div className="text-4xl mb-4">🏆</div>
           <h4 className="text-yellow-400 font-bold mb-2">Kategori / Classes</h4>
           <p className="text-white font-semibold">20 Kelas / Classes</p>
-          <p className="text-gray-400 text-sm">Usia / Ages 1-8 tahun</p>
+          <p className="text-gray-400 text-sm">Usia / Ages 2-10 tahun</p>
         </div>
       </div>
 
