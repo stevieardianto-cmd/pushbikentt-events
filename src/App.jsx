@@ -10,6 +10,7 @@ import Schedule from './pages/Schedule'
 import Results from './pages/Results'
 import Heats from './pages/Heats'
 import Gallery from './pages/Gallery'
+import HistoryPage from './pages/History'
 import Login from './pages/admin/Login'
 import Dashboard from './pages/admin/Dashboard'
 import ManageAdmins from './pages/admin/ManageAdmins'
@@ -37,7 +38,7 @@ function App() {
           <Route path="/results" element={<PublicLayout><Results /></PublicLayout>} />
           <Route path="/heats" element={<PublicLayout><Heats /></PublicLayout>} />
           <Route path="/gallery" element={<PublicLayout><Gallery /></PublicLayout>} />
-          <Route path="/history" element={<PublicLayout><History /></PublicLayout>} />
+          <Route path="/history" element={<PublicLayout><HistoryPage /></PublicLayout>} />
 
           {/* Admin Routes */}
           <Route path="/admin/login" element={<Login />} />

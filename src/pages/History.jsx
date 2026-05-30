@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
-function History() {
+function HistoryPage() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -23,8 +23,6 @@ function History() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
-
-      {/* Header */}
       <div className="text-center mb-12">
         <h1 className="text-4xl font-black mb-3">
           RIWAYAT <span className="text-yellow-400">/ HISTORY</span>
@@ -46,13 +44,9 @@ function History() {
           {events.map((event, index) => (
             <div key={event.id}
               className="bg-gray-800 rounded-2xl border border-gray-700 hover:border-yellow-400 transition-colors overflow-hidden">
-
-              {/* Event Header */}
               <div className="bg-gray-700 px-6 py-4 flex justify-between items-center flex-wrap gap-3">
                 <div className="flex items-center gap-3">
-                  <span className="text-yellow-400 font-black text-2xl">
-                    #{events.length - index}
-                  </span>
+                  <span className="text-yellow-400 font-black text-2xl">#{events.length - index}</span>
                   <div>
                     <h2 className="text-white font-black text-lg">{event.name}</h2>
                     <p className="text-gray-400 text-sm">📅 {event.date} · 📍 {event.location}</p>
@@ -62,13 +56,9 @@ function History() {
                   {statusStyle[event.status]?.label || '✅ Completed'}
                 </span>
               </div>
-
-              {/* Event Body */}
               <div className="px-6 py-5">
                 {event.description && (
-                  <p className="text-gray-300 text-sm mb-4 leading-relaxed">
-                    {event.description}
-                  </p>
+                  <p className="text-gray-300 text-sm mb-4 leading-relaxed">{event.description}</p>
                 )}
                 <div className="flex flex-wrap gap-4">
                   {event.total_riders > 0 && (
@@ -81,14 +71,8 @@ function History() {
                     <span className="text-yellow-400 font-black">20</span>
                     <span className="text-gray-400 text-sm">Classes</span>
                   </div>
-                  <div className="flex items-center gap-2 bg-gray-700 rounded-xl px-4 py-2">
-                    <span className="text-yellow-400 font-black">Ages 1-8</span>
-                    <span className="text-gray-400 text-sm">Tahun / Years</span>
-                  </div>
                 </div>
               </div>
-
-              {/* Est. Badge for first event */}
               {index === events.length - 1 && (
                 <div className="px-6 pb-5">
                   <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-3 text-center">
@@ -103,7 +87,6 @@ function History() {
         </div>
       )}
 
-      {/* Timeline note */}
       <div className="text-center mt-12">
         <p className="text-gray-600 text-sm">
           Setiap tahun sejarah baru ditulis. / Every year a new history is written. 🚲
@@ -113,4 +96,4 @@ function History() {
   )
 }
 
-export default History
+export default HistoryPage

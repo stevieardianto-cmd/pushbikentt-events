@@ -612,6 +612,7 @@ function Dashboard() {
     { id: 'heats',         label: '🎲 Heat Draw' },
     { id: 'results',       label: '🏆 Enter Results' },
     { id: 'classcounts',   label: '📊 Class Counts' },
+    { id: 'gallery',       label: '📸 Gallery' },
     { id: 'events',        label: '📖 Events' },
   ]
 
