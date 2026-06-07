@@ -15,6 +15,338 @@ const CLASS_INFO = {
 const CLASSES = ['K1','K2','K3','K4','K5','K6','K7','K8','K9','K10',
                  'K11','K12','K13','K14','K15','K16','K17','K18','K19','K20']
 
+// ─── Schedule Manager ───────────────────────────────────────────────────────
+function ScheduleManager() {
+  const [heats, setHeats] = useState([])
+  const [scheduleEntries, setScheduleEntries] = useState([])
+  const [assignments, setAssignments] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [showManual, setShowManual] = useState(false)
+  const [manualEntry, setManualEntry] = useState({
+    class_id: 'K1', round: 'Semi Final',
+    scheduled_time: '13:00', notes: '', order_number: ''
+  })
+
+  const ROUNDS = ['Heat 1','Heat 2','Heat 3','Semi Final','Final']
+
+  useEffect(() => { fetchData() }, [])
+
+  const fetchData = async () => {
+    const [{ data: heatData }, { data: schedData }] = await Promise.all([
+      supabase.from('heats').select('class_id, heat_number').order('class_id').order('heat_number'),
+      supabase.from('schedule').select('*').order('order_number')
+    ])
+
+    // Get unique class + heat combinations from heat draw
+    const uniqueHeats = []
+    const seen = new Set()
+    ;(heatData || []).forEach(h => {
+      const key = `${h.class_id}_${h.heat_number}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        uniqueHeats.push({ class_id: h.class_id, heat_number: h.heat_number, round: `Heat ${h.heat_number}` })
+      }
+    })
+
+    setHeats(uniqueHeats)
+    setScheduleEntries(schedData || [])
+
+    // Pre-fill assignments from existing schedule
+    const existing = {}
+    uniqueHeats.forEach(h => {
+      const key = `${h.class_id}_${h.round}`
+      const saved = schedData?.find(s => s.class_id === h.class_id && s.round === h.round)
+      existing[key] = {
+        time: saved?.scheduled_time || '',
+        order: saved?.order_number ? String(saved.order_number) : '',
+        notes: saved?.notes || '',
+        id: saved?.id || null
+      }
+    })
+
+    // Also load manual entries (Semi Final, Final etc) not from heat draw
+    schedData?.forEach(s => {
+      const isHeat = uniqueHeats.some(h => h.class_id === s.class_id && h.round === s.round)
+      if (!isHeat) {
+        const key = `${s.class_id}_${s.round}`
+        existing[key] = { time: s.scheduled_time, order: String(s.order_number), notes: s.notes || '', id: s.id }
+      }
+    })
+
+    setAssignments(existing)
+  }
+
+  const showMsg = (text) => { setMessage(text); setTimeout(() => setMessage(''), 3000) }
+
+  const updateAssignment = (key, field, value) => {
+    setAssignments(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
+  }
+
+  const saveAll = async () => {
+    setSaving(true)
+    let saved = 0
+    let errors = 0
+
+    for (const [key, val] of Object.entries(assignments)) {
+      if (!val.time) continue
+      const [class_id, ...roundParts] = key.split('_')
+      const round = roundParts.join('_')
+      const data = {
+        class_id, round,
+        scheduled_time: val.time,
+        order_number: parseInt(val.order) || 999,
+        notes: val.notes || null,
+        status: 'upcoming'
+      }
+
+      if (val.id) {
+        const { error } = await supabase.from('schedule').update(data).eq('id', val.id)
+        if (error) errors++
+        else saved++
+      } else {
+        const { data: newEntry, error } = await supabase.from('schedule').insert(data).select().single()
+        if (error) errors++
+        else {
+          saved++
+          setAssignments(prev => ({ ...prev, [key]: { ...prev[key], id: newEntry.id } }))
+        }
+      }
+    }
+
+    if (errors > 0) showMsg(`⚠️ Saved ${saved}, ${errors} errors`)
+    else showMsg(`✅ Saved ${saved} schedule entries!`)
+    setSaving(false)
+    fetchData()
+  }
+
+  const deleteEntry = async (key) => {
+    const entry = assignments[key]
+    if (!entry?.id) {
+      setAssignments(prev => { const u = {...prev}; delete u[key]; return u })
+      return
+    }
+    if (!confirm('Remove this from schedule?')) return
+    await supabase.from('schedule').delete().eq('id', entry.id)
+    showMsg('✅ Removed!')
+    fetchData()
+  }
+
+  const addManual = async () => {
+    if (!manualEntry.scheduled_time) { showMsg('❌ Time is required!'); return }
+    setSaving(true)
+    const maxOrder = Math.max(...Object.values(assignments).map(a => parseInt(a.order) || 0), 0)
+    const { error } = await supabase.from('schedule').insert({
+      class_id: manualEntry.class_id, round: manualEntry.round,
+      scheduled_time: manualEntry.scheduled_time,
+      order_number: parseInt(manualEntry.order_number) || maxOrder + 1,
+      notes: manualEntry.notes || null, status: 'upcoming'
+    })
+    if (error) showMsg('❌ ' + error.message)
+    else {
+      showMsg('✅ Manual entry added!')
+      setManualEntry({ class_id:'K1', round:'Semi Final', scheduled_time:'13:00', notes:'', order_number:'' })
+      setShowManual(false)
+      fetchData()
+    }
+    setSaving(false)
+  }
+
+  // Combine heats + manual entries for display
+  const allKeys = new Set([
+    ...heats.map(h => `${h.class_id}_${h.round}`),
+    ...Object.keys(assignments)
+  ])
+
+  const sortedEntries = [...allKeys].map(key => {
+    const [class_id, ...roundParts] = key.split('_')
+    return { key, class_id, round: roundParts.join('_'), ...assignments[key] }
+  }).sort((a, b) => (parseInt(a.order) || 999) - (parseInt(b.order) || 999))
+
+  const assignedCount = Object.values(assignments).filter(a => a.time).length
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+
+        {/* Header */}
+        <div className="flex justify-between items-start mb-6 flex-wrap gap-3">
+          <div>
+            <h3 className="text-yellow-400 font-black text-lg">📅 Schedule Manager</h3>
+            <p className="text-gray-400 text-xs mt-1">
+              Heats are pulled from Heat Draw automatically. Set time and order for each.
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setShowManual(!showManual)}
+              className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
+              {showManual ? '✕ Cancel' : '➕ Add Semi/Final'}
+            </button>
+            <button onClick={saveAll} disabled={saving}
+              className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
+              {saving ? '⏳ Saving...' : `💾 Save All Times`}
+            </button>
+          </div>
+        </div>
+
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : message.startsWith('⚠️') ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+            {message}
+          </div>
+        )}
+
+        {/* Stats */}
+        <div className="flex gap-3 mb-6 flex-wrap">
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{allKeys.size}</div>
+            <div className="text-gray-400 text-xs">Total Slots</div>
+          </div>
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{assignedCount}</div>
+            <div className="text-gray-400 text-xs">Times Set</div>
+          </div>
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{allKeys.size - assignedCount}</div>
+            <div className="text-gray-400 text-xs">Pending</div>
+          </div>
+        </div>
+
+        {/* Add Manual Entry (Semi Final, Final) */}
+        {showManual && (
+          <div className="bg-gray-700 rounded-xl p-5 mb-6 border border-yellow-400/50">
+            <h4 className="text-yellow-400 font-black mb-4 text-sm">➕ Add Semi Final / Final / Custom</h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Class</label>
+                <select value={manualEntry.class_id}
+                  onChange={e => setManualEntry(p => ({...p, class_id: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
+                  {CLASSES.map(c => <option key={c} value={c}>{c} — {CLASS_INFO[c]}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Round</label>
+                <select value={manualEntry.round}
+                  onChange={e => setManualEntry(p => ({...p, round: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
+                  {ROUNDS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Time (WITA)</label>
+                <input type="time" value={manualEntry.scheduled_time}
+                  onChange={e => setManualEntry(p => ({...p, scheduled_time: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Order #</label>
+                <input type="number" value={manualEntry.order_number} placeholder="Auto"
+                  onChange={e => setManualEntry(p => ({...p, order_number: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Notes</label>
+                <input type="text" value={manualEntry.notes} placeholder="Optional"
+                  onChange={e => setManualEntry(p => ({...p, notes: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+              </div>
+            </div>
+            <button onClick={addManual} disabled={saving}
+              className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-lg text-sm hover:bg-yellow-300 transition-colors disabled:opacity-50">
+              ✅ Add Entry
+            </button>
+          </div>
+        )}
+
+        {/* No Heats Warning */}
+        {heats.length === 0 && (
+          <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4 mb-6 text-center">
+            <p className="text-yellow-400 font-bold text-sm">⚠️ No heats assigned yet!</p>
+            <p className="text-gray-400 text-xs mt-1">
+              Go to the 🎲 Heat Draw tab first to assign riders to heats.<br/>
+              They will automatically appear here once saved.
+            </p>
+          </div>
+        )}
+
+        {/* Schedule Table */}
+        {sortedEntries.length > 0 && (
+          <div className="space-y-2">
+            {/* Column Headers */}
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+              <div className="col-span-2">Class</div>
+              <div className="col-span-2">Round</div>
+              <div className="col-span-2">Order #</div>
+              <div className="col-span-3">Time (WITA)</div>
+              <div className="col-span-2">Notes</div>
+              <div className="col-span-1"></div>
+            </div>
+
+            {sortedEntries.map(({ key, class_id, round }) => {
+              const val = assignments[key] || { time:'', order:'', notes:'' }
+              const isFromHeatDraw = heats.some(h => h.class_id === class_id && h.round === round)
+              return (
+                <div key={key}
+                  className={`grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-2 border transition-colors ${
+                    val.time
+                      ? 'bg-gray-700 border-gray-600'
+                      : 'bg-gray-700/50 border-yellow-400/20'
+                  }`}>
+                  <div className="col-span-2">
+                    <span className="text-white font-black text-sm">{class_id}</span>
+                    <p className="text-gray-500 text-xs">{CLASS_INFO[class_id]}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      round === 'Final' ? 'bg-yellow-400 text-gray-900' :
+                      round === 'Semi Final' ? 'bg-orange-500 text-white' :
+                      'bg-gray-600 text-gray-300'
+                    }`}>
+                      {round}
+                    </span>
+                    {isFromHeatDraw && (
+                      <p className="text-gray-600 text-xs mt-0.5">from heat draw</p>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <input type="number" min="1" value={val.order}
+                      onChange={e => updateAssignment(key, 'order', e.target.value)}
+                      placeholder="#"
+                      className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400" />
+                  </div>
+                  <div className="col-span-3">
+                    <input type="time" value={val.time}
+                      onChange={e => updateAssignment(key, 'time', e.target.value)}
+                      className={`w-full bg-gray-600 border rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400 ${
+                        val.time ? 'border-gray-500' : 'border-yellow-400/50'
+                      }`} />
+                  </div>
+                  <div className="col-span-2">
+                    <input type="text" value={val.notes}
+                      onChange={e => updateAssignment(key, 'notes', e.target.value)}
+                      placeholder="Notes"
+                      className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-400" />
+                  </div>
+                  <div className="col-span-1 flex justify-center">
+                    <button onClick={() => deleteEntry(key)}
+                      className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                  </div>
+                </div>
+              )
+            })}
+
+            <div className="pt-4">
+              <button onClick={saveAll} disabled={saving}
+                className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
+                {saving ? '⏳ Saving...' : `💾 Save All Schedule Times (${assignedCount} set)`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 // ─── Bulk Import ───────────────────────────────────────────────────────────
 function BulkImport() {
   const [selectedClass, setSelectedClass] = useState('K1')
@@ -718,15 +1050,16 @@ function Dashboard() {
   )
 
   const tabs = [
-    { id: 'registrations', label: '📋 Registrations' },
-    { id: 'bulkimport',    label: '📥 Bulk Import' },
-    { id: 'schedule',      label: '🏁 Race Control' },
-    { id: 'heats',         label: '🎲 Heat Draw' },
-    { id: 'results',       label: '🏆 Enter Results' },
-    { id: 'classcounts',   label: '📊 Class Counts' },
-    { id: 'gallery',       label: '📸 Gallery' },
-    { id: 'events',        label: '📖 Events' },
-  ]
+  { id: 'registrations', label: '📋 Registrations' },
+  { id: 'bulkimport',    label: '📥 Bulk Import' },
+  { id: 'schedulemgr',  label: '📅 Schedule Manager' },
+  { id: 'schedule',      label: '🏁 Race Control' },
+  { id: 'heats',         label: '🎲 Heat Draw' },
+  { id: 'results',       label: '🏆 Enter Results' },
+  { id: 'classcounts',   label: '📊 Class Counts' },
+  { id: 'gallery',       label: '📸 Gallery' },
+  { id: 'events',        label: '📖 Events' },
+  ] 
 
   return (
     <div className="min-h-screen bg-gray-950">
@@ -786,6 +1119,7 @@ function Dashboard() {
         </div>
 
         {activeTab === 'bulkimport' && <BulkImport />}
+        {activeTab === 'schedulemgr' && <ScheduleManager />}
         {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
         {activeTab === 'results' && <EnterResults />}
         {activeTab === 'gallery' && <GalleryManager />}
