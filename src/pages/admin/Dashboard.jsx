@@ -15,7 +15,135 @@ const CLASS_INFO = {
 const CLASSES = ['K1','K2','K3','K4','K5','K6','K7','K8','K9','K10',
                  'K11','K12','K13','K14','K15','K16','K17','K18','K19','K20']
 
-// ─── Enter Results Component ───────────────────────────────────────────────
+// ─── Bulk Import ───────────────────────────────────────────────────────────
+function BulkImport() {
+  const [selectedClass, setSelectedClass] = useState('K1')
+  const [names, setNames] = useState('')
+  const [gender, setGender] = useState('Unknown')
+  const [importing, setImporting] = useState(false)
+  const [message, setMessage] = useState('')
+  const [preview, setPreview] = useState([])
+  const [importedCount, setImportedCount] = useState(0)
+
+  const parseNames = (text) =>
+    text.split('\n').map(n => n.trim()).filter(n => n.length > 0)
+
+  useEffect(() => { setPreview(parseNames(names)) }, [names])
+
+  const handleImport = async () => {
+    const riderNames = parseNames(names)
+    if (riderNames.length === 0) {
+      setMessage('❌ Please enter at least one rider name!')
+      return
+    }
+    setImporting(true)
+    setMessage('')
+    try {
+      const { data: reg, error: regError } = await supabase
+        .from('registrations')
+        .insert({ parent_name: `Walk-in Import — ${selectedClass}`, phone: 'N/A', email: '', address: '' })
+        .select().single()
+      if (regError) throw regError
+      const childRows = riderNames.map(name => ({
+        registration_id: reg.id,
+        child_name: name,
+        gender: gender,
+        date_of_birth: null,
+        classes: [selectedClass]
+      }))
+      const { error: childError } = await supabase.from('children').insert(childRows)
+      if (childError) throw childError
+      setImportedCount(prev => prev + riderNames.length)
+      setMessage(`✅ Imported ${riderNames.length} riders into ${selectedClass}!`)
+      setNames('')
+      setPreview([])
+    } catch (error) {
+      setMessage('❌ Error: ' + error.message)
+    }
+    setImporting(false)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <h3 className="text-yellow-400 font-black mb-2">📥 Bulk Import Riders</h3>
+        <p className="text-gray-400 text-sm mb-6">Paste rider names from WhatsApp — one name per line. Select class then import!</p>
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+            {message}
+          </div>
+        )}
+        {importedCount > 0 && (
+          <div className="bg-blue-500/20 border border-blue-500 rounded-xl p-3 mb-4 text-sm">
+            <span className="text-blue-400 font-bold">📊 Total imported this session: {importedCount} riders</span>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block font-bold">Select Class *</label>
+              <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-400">
+                {CLASSES.map(c => <option key={c} value={c}>{c} — {CLASS_INFO[c]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-gray-400 text-xs mb-1 block font-bold">Gender (if known)</label>
+              <select value={gender} onChange={e => setGender(e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-400">
+                <option value="Unknown">Unknown / Mixed</option>
+                <option value="Laki-laki">Laki-laki / Male</option>
+                <option value="Perempuan">Perempuan / Female</option>
+              </select>
+            </div>
+            <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4">
+              <p className="text-yellow-400 font-bold text-xs mb-2">💡 How to use:</p>
+              <ol className="text-gray-300 text-xs space-y-1">
+                <li>1. Select the class</li>
+                <li>2. Copy names from WhatsApp</li>
+                <li>3. Paste into the text box</li>
+                <li>4. One name per line</li>
+                <li>5. Click Import!</li>
+                <li>6. Repeat for each class</li>
+              </ol>
+            </div>
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block font-bold">Rider Names * — one per line</label>
+            <textarea value={names} onChange={e => setNames(e.target.value)}
+              placeholder={'Rider Name 1\nRider Name 2\nRider Name 3'}
+              rows={12}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-400 resize-none font-mono" />
+            {preview.length > 0 && (
+              <p className="text-yellow-400 text-xs mt-2 font-bold">
+                📋 {preview.length} rider{preview.length > 1 ? 's' : ''} ready for {selectedClass}
+              </p>
+            )}
+          </div>
+        </div>
+        {preview.length > 0 && (
+          <div className="mt-6 bg-gray-700 rounded-xl p-4">
+            <p className="text-gray-400 text-xs font-bold mb-3">👁️ Preview:</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {preview.map((name, i) => (
+                <div key={i} className="bg-gray-600 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <span className="text-yellow-400 font-black text-xs">{i + 1}</span>
+                  <span className="text-white text-xs font-bold truncate">{name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <button onClick={handleImport} disabled={importing || preview.length === 0}
+          className="mt-6 w-full bg-yellow-400 text-gray-900 font-black py-4 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-lg">
+          {importing ? '⏳ Importing...' : `📥 Import ${preview.length > 0 ? preview.length : ''} Riders into ${selectedClass}`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Enter Results ─────────────────────────────────────────────────────────
 function EnterResults() {
   const [form, setForm] = useState({ class_id:'K1', round:'Heat 1', position:'1', rider_name:'', qualified:false, notes:'' })
   const [saving, setSaving] = useState(false)
@@ -136,7 +264,7 @@ function EnterResults() {
   )
 }
 
-// ─── Heat Draw Manager Component ───────────────────────────────────────────
+// ─── Heat Draw Manager ─────────────────────────────────────────────────────
 function HeatDrawManager({ registrations }) {
   const [selectedClass, setSelectedClass] = useState('K1')
   const [assignments, setAssignments] = useState({})
@@ -242,10 +370,9 @@ function HeatDrawManager({ registrations }) {
             ➕ Add Rider Manually
           </button>
         </div>
-
         <div className="flex gap-3 mb-4 flex-wrap">
           {[
-            { label: 'Total Riders', value: riders.length },
+            { label: 'Total', value: riders.length },
             { label: 'Assigned', value: assignedCount },
             { label: 'Unassigned', value: riders.length - assignedCount },
             { label: 'Heats', value: heatNums.length },
@@ -256,12 +383,11 @@ function HeatDrawManager({ registrations }) {
             </div>
           ))}
         </div>
-
         {riders.length === 0 ? (
           <div className="text-center py-10 text-gray-500">
             <div className="text-4xl mb-3">👶</div>
-            <p>No riders registered for {selectedClass} yet.</p>
-            <p className="text-xs mt-1">Add riders manually using the button above.</p>
+            <p>No riders for {selectedClass} yet.</p>
+            <p className="text-xs mt-1">Use Bulk Import or add manually above.</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -295,7 +421,6 @@ function HeatDrawManager({ registrations }) {
             ))}
           </div>
         )}
-
         {riders.length > 0 && (
           <div className="flex gap-3 mt-6 flex-wrap">
             <button onClick={saveAll} disabled={saving}
@@ -317,14 +442,12 @@ function HeatDrawManager({ registrations }) {
           </div>
         )}
       </div>
-
       {heatNums.length > 0 && (
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
           <h3 className="text-yellow-400 font-black mb-4">👁️ Preview — {selectedClass}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {heatNums.map(heatNum => {
-              const heatRiders = Object.entries(assignments)
-                .filter(([_, v]) => v.heat === heatNum)
+              const heatRiders = Object.entries(assignments).filter(([_, v]) => v.heat === heatNum)
               return (
                 <div key={heatNum} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
                   <div className="bg-gray-600 px-4 py-2 flex justify-between">
@@ -351,25 +474,22 @@ function HeatDrawManager({ registrations }) {
   )
 }
 
-// ─── Events Manager Component ──────────────────────────────────────────────
+// ─── Gallery Manager ───────────────────────────────────────────────────────
 function GalleryManager() {
   const [photos, setPhotos] = useState([])
-  const [form, setForm] = useState({ title:'', image_url:'', event_name:'', year:'2025' })
+  const [form, setForm] = useState({ title:'', image_url:'', event_name:'', year:'2026' })
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => { fetchPhotos() }, [])
 
   const fetchPhotos = async () => {
-    const { data } = await supabase.from('gallery').select('*')
-      .order('created_at', { ascending: false })
+    const { data } = await supabase.from('gallery').select('*').order('created_at', { ascending: false })
     setPhotos(data || [])
   }
 
   const handleSave = async () => {
-    if (!form.title || !form.image_url) {
-      setMessage('❌ Title and image URL are required!'); return
-    }
+    if (!form.title || !form.image_url) { setMessage('❌ Title and image URL required!'); return }
     setSaving(true)
     const { error } = await supabase.from('gallery').insert({
       title: form.title, image_url: form.image_url,
@@ -378,7 +498,7 @@ function GalleryManager() {
     if (error) setMessage('❌ ' + error.message)
     else {
       setMessage('✅ Photo added!')
-      setForm({ title:'', image_url:'', event_name:'', year:'2025' })
+      setForm({ title:'', image_url:'', event_name:'', year:'2026' })
       fetchPhotos()
     }
     setSaving(false)
@@ -394,10 +514,8 @@ function GalleryManager() {
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-        <h3 className="text-yellow-400 font-black mb-4">➕ Add Photo</h3>
-        <p className="text-gray-400 text-xs mb-4">
-          💡 Upload photos to Google Drive, Imgur, or any image host and paste the direct image URL here.
-        </p>
+        <h3 className="text-yellow-400 font-black mb-2">➕ Add Photo</h3>
+        <p className="text-gray-400 text-xs mb-4">💡 Upload to Google Photos or Imgur and paste the direct image URL here.</p>
         {message && (
           <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
             {message}
@@ -424,27 +542,23 @@ function GalleryManager() {
           </div>
           <div className="md:col-span-2">
             <label className="text-gray-400 text-xs mb-1 block">Event Name</label>
-            <input type="text" value={form.event_name} placeholder="e.g. Championship 2025"
+            <input type="text" value={form.event_name} placeholder="e.g. Championship 2026"
               onChange={e => setForm(p => ({...p, event_name: e.target.value}))}
               className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
           </div>
         </div>
-
         {form.image_url && (
           <div className="mb-4">
             <p className="text-gray-400 text-xs mb-2">Preview:</p>
-            <img src={form.image_url} alt="preview"
-              className="h-32 w-32 object-cover rounded-xl border border-gray-600"
+            <img src={form.image_url} alt="preview" className="h-32 w-32 object-cover rounded-xl border border-gray-600"
               onError={e => { e.target.src = 'https://placehold.co/128x128/1f2937/facc15?text=❌' }} />
           </div>
         )}
-
         <button onClick={handleSave} disabled={saving}
           className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
           {saving ? 'Saving...' : '💾 Add Photo'}
         </button>
       </div>
-
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">📸 All Photos ({photos.length})</h3>
         {photos.length === 0 ? (
@@ -453,15 +567,12 @@ function GalleryManager() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {photos.map(photo => (
               <div key={photo.id} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
-                <img src={photo.image_url} alt={photo.title}
-                  className="w-full aspect-square object-cover"
+                <img src={photo.image_url} alt={photo.title} className="w-full aspect-square object-cover"
                   onError={e => { e.target.src = 'https://placehold.co/200x200/1f2937/facc15?text=📸' }} />
                 <div className="p-3">
                   <p className="text-white font-bold text-xs truncate">{photo.title}</p>
                   <button onClick={() => handleDelete(photo.id)}
-                    className="text-red-400 hover:text-red-300 text-xs mt-2 font-bold">
-                    ✕ Delete
-                  </button>
+                    className="text-red-400 hover:text-red-300 text-xs mt-1 font-bold">✕ Delete</button>
                 </div>
               </div>
             ))}
@@ -471,6 +582,8 @@ function GalleryManager() {
     </div>
   )
 }
+
+// ─── Events Manager ────────────────────────────────────────────────────────
 function EventsManager() {
   const [events, setEvents] = useState([])
   const [form, setForm] = useState({ name:'', date:'', location:'', description:'', total_riders:'0' })
@@ -485,9 +598,7 @@ function EventsManager() {
   }
 
   const handleSave = async () => {
-    if (!form.name || !form.date || !form.location) {
-      setMessage('❌ Fill in name, date and location!'); return
-    }
+    if (!form.name || !form.date || !form.location) { setMessage('❌ Fill name, date and location!'); return }
     setSaving(true)
     const { error } = await supabase.from('events').insert({
       name: form.name, date: form.date, location: form.location,
@@ -520,8 +631,8 @@ function EventsManager() {
         )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           {[
-            { key:'name', label:'Event Name', placeholder:'Championship 2025' },
-            { key:'date', label:'Date', placeholder:'15 Agustus 2025' },
+            { key:'name', label:'Event Name', placeholder:'Championship 2026' },
+            { key:'date', label:'Date', placeholder:'20-21 Juni 2026' },
             { key:'location', label:'Location', placeholder:'Kupang, NTT' },
             { key:'total_riders', label:'Total Riders', placeholder:'0' },
           ].map(({ key, label, placeholder }) => (
@@ -608,6 +719,7 @@ function Dashboard() {
 
   const tabs = [
     { id: 'registrations', label: '📋 Registrations' },
+    { id: 'bulkimport',    label: '📥 Bulk Import' },
     { id: 'schedule',      label: '🏁 Race Control' },
     { id: 'heats',         label: '🎲 Heat Draw' },
     { id: 'results',       label: '🏆 Enter Results' },
@@ -649,7 +761,6 @@ function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
             { icon:'👨‍👩‍👧', label:'Families', value: registrations.length },
@@ -665,7 +776,6 @@ function Dashboard() {
           ))}
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-1 mb-8 border-b border-gray-700 overflow-x-auto">
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -675,7 +785,12 @@ function Dashboard() {
           ))}
         </div>
 
-        {/* Class Counts */}
+        {activeTab === 'bulkimport' && <BulkImport />}
+        {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
+        {activeTab === 'results' && <EnterResults />}
+        {activeTab === 'gallery' && <GalleryManager />}
+        {activeTab === 'events' && <EventsManager />}
+
         {activeTab === 'classcounts' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
             <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
@@ -703,7 +818,6 @@ function Dashboard() {
           </div>
         )}
 
-        {/* Race Control */}
         {activeTab === 'schedule' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
             <h2 className="text-yellow-400 font-black mb-6">🏁 Race Day Control</h2>
@@ -735,12 +849,6 @@ function Dashboard() {
           </div>
         )}
 
-        {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
-        {activeTab === 'results' && <EnterResults />}
-        {activeTab === 'gallery' && <GalleryManager />}
-        {activeTab === 'events' && <EventsManager />}
-
-        {/* Registrations */}
         {activeTab === 'registrations' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
@@ -772,8 +880,7 @@ function Dashboard() {
                         <span className="text-gray-500 text-sm font-bold w-6">#{index+1}</span>
                         <div>
                           <p className="text-white font-bold">{reg.parent_name}</p>
-                          <p className="text-gray-400 text-sm">
-                            📱 {reg.phone}
+                          <p className="text-gray-400 text-sm">📱 {reg.phone}
                             {reg.email && <span className="ml-3">📧 {reg.email}</span>}
                           </p>
                         </div>
@@ -795,9 +902,7 @@ function Dashboard() {
                           {reg.children?.map(child => (
                             <div key={child.id} className="bg-gray-800 rounded-xl p-4 border border-gray-600">
                               <p className="text-white font-bold">🚲 {child.child_name}</p>
-                              <p className="text-gray-400 text-sm mt-1">
-                                {child.gender} · {new Date(child.date_of_birth).toLocaleDateString('id-ID')}
-                              </p>
+                              <p className="text-gray-400 text-sm mt-1">{child.gender}</p>
                               <div className="flex flex-wrap gap-1 mt-2">
                                 {child.classes?.map(cls => (
                                   <span key={cls} className="bg-yellow-400 text-gray-900 text-xs font-black px-2 py-0.5 rounded-full">
