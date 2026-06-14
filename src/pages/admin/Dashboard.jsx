@@ -5,349 +5,16 @@ import { useAuth } from '../../context/AuthContext'
 import { exportRiderListPDF, exportHeatDrawPDF } from '../../components/ExportPDF'
 
 const CLASS_INFO = {
-  K1:'Siput',K2:'Open',K3:'Open',K4:'Open',K5:'Open',
-  K6:'Girls Only',K7:'Rockie',K8:'¾ Wheel',K9:'Rockie',
-  K10:'Rockie',K11:'Rockie',K12:'Mix',K13:'Mix',
-  K14:'Girls Only',K15:'Girls Only',K16:'Girls Only',
-  K17:'Open',K18:'Open',K19:'Girls Only',K20:'FFA'
+  K1:'Siput', K2:'Open', K3:'Open', K4:'Open', K5:'Open',
+  K6:'Girls Only', K7:'Rockie', K8:'¾ Wheel', K9:'Rockie',
+  K10:'Rockie', K11:'Rockie', K12:'Mix', K13:'Mix',
+  K14:'Girls Only', K15:'Girls Only', K16:'Girls Only',
+  K17:'Open', K18:'Open', K19:'Girls Only', K20:'FFA'
 }
-
 const CLASSES = ['K1','K2','K3','K4','K5','K6','K7','K8','K9','K10',
                  'K11','K12','K13','K14','K15','K16','K17','K18','K19','K20']
 
-// ─── Schedule Manager ───────────────────────────────────────────────────────
-function ScheduleManager() {
-  const [heats, setHeats] = useState([])
-  const [scheduleEntries, setScheduleEntries] = useState([])
-  const [assignments, setAssignments] = useState({})
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState('')
-  const [showManual, setShowManual] = useState(false)
-  const [manualEntry, setManualEntry] = useState({
-    class_id: 'K1', round: 'Semi Final',
-    scheduled_time: '13:00', notes: '', order_number: ''
-  })
-
-  const ROUNDS = ['Heat 1','Heat 2','Heat 3','Semi Final','Final']
-
-  useEffect(() => { fetchData() }, [])
-
-  const fetchData = async () => {
-    const [{ data: heatData }, { data: schedData }] = await Promise.all([
-      supabase.from('heats').select('class_id, heat_number').order('class_id').order('heat_number'),
-      supabase.from('schedule').select('*').order('order_number')
-    ])
-
-    // Get unique class + heat combinations from heat draw
-    const uniqueHeats = []
-    const seen = new Set()
-    ;(heatData || []).forEach(h => {
-      const key = `${h.class_id}_${h.heat_number}`
-      if (!seen.has(key)) {
-        seen.add(key)
-        uniqueHeats.push({ class_id: h.class_id, heat_number: h.heat_number, round: `Heat ${h.heat_number}` })
-      }
-    })
-
-    setHeats(uniqueHeats)
-    setScheduleEntries(schedData || [])
-
-    // Pre-fill assignments from existing schedule
-    const existing = {}
-    uniqueHeats.forEach(h => {
-      const key = `${h.class_id}_${h.round}`
-      const saved = schedData?.find(s => s.class_id === h.class_id && s.round === h.round)
-      existing[key] = {
-        time: saved?.scheduled_time || '',
-        order: saved?.order_number ? String(saved.order_number) : '',
-        notes: saved?.notes || '',
-        id: saved?.id || null
-      }
-    })
-
-    // Also load manual entries (Semi Final, Final etc) not from heat draw
-    schedData?.forEach(s => {
-      const isHeat = uniqueHeats.some(h => h.class_id === s.class_id && h.round === s.round)
-      if (!isHeat) {
-        const key = `${s.class_id}_${s.round}`
-        existing[key] = { time: s.scheduled_time, order: String(s.order_number), notes: s.notes || '', id: s.id }
-      }
-    })
-
-    setAssignments(existing)
-  }
-
-  const showMsg = (text) => { setMessage(text); setTimeout(() => setMessage(''), 3000) }
-
-  const updateAssignment = (key, field, value) => {
-    setAssignments(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }))
-  }
-
-  const saveAll = async () => {
-    setSaving(true)
-    let saved = 0
-    let errors = 0
-
-    for (const [key, val] of Object.entries(assignments)) {
-      if (!val.time) continue
-      const [class_id, ...roundParts] = key.split('_')
-      const round = roundParts.join('_')
-      const data = {
-        class_id, round,
-        scheduled_time: val.time,
-        order_number: parseInt(val.order) || 999,
-        notes: val.notes || null,
-        status: 'upcoming'
-      }
-
-      if (val.id) {
-        const { error } = await supabase.from('schedule').update(data).eq('id', val.id)
-        if (error) errors++
-        else saved++
-      } else {
-        const { data: newEntry, error } = await supabase.from('schedule').insert(data).select().single()
-        if (error) errors++
-        else {
-          saved++
-          setAssignments(prev => ({ ...prev, [key]: { ...prev[key], id: newEntry.id } }))
-        }
-      }
-    }
-
-    if (errors > 0) showMsg(`⚠️ Saved ${saved}, ${errors} errors`)
-    else showMsg(`✅ Saved ${saved} schedule entries!`)
-    setSaving(false)
-    fetchData()
-  }
-
-  const deleteEntry = async (key) => {
-    const entry = assignments[key]
-    if (!entry?.id) {
-      setAssignments(prev => { const u = {...prev}; delete u[key]; return u })
-      return
-    }
-    if (!confirm('Remove this from schedule?')) return
-    await supabase.from('schedule').delete().eq('id', entry.id)
-    showMsg('✅ Removed!')
-    fetchData()
-  }
-
-  const addManual = async () => {
-    if (!manualEntry.scheduled_time) { showMsg('❌ Time is required!'); return }
-    setSaving(true)
-    const maxOrder = Math.max(...Object.values(assignments).map(a => parseInt(a.order) || 0), 0)
-    const { error } = await supabase.from('schedule').insert({
-      class_id: manualEntry.class_id, round: manualEntry.round,
-      scheduled_time: manualEntry.scheduled_time,
-      order_number: parseInt(manualEntry.order_number) || maxOrder + 1,
-      notes: manualEntry.notes || null, status: 'upcoming'
-    })
-    if (error) showMsg('❌ ' + error.message)
-    else {
-      showMsg('✅ Manual entry added!')
-      setManualEntry({ class_id:'K1', round:'Semi Final', scheduled_time:'13:00', notes:'', order_number:'' })
-      setShowManual(false)
-      fetchData()
-    }
-    setSaving(false)
-  }
-
-  // Combine heats + manual entries for display
-  const allKeys = new Set([
-    ...heats.map(h => `${h.class_id}_${h.round}`),
-    ...Object.keys(assignments)
-  ])
-
-  const sortedEntries = [...allKeys].map(key => {
-    const [class_id, ...roundParts] = key.split('_')
-    return { key, class_id, round: roundParts.join('_'), ...assignments[key] }
-  }).sort((a, b) => (parseInt(a.order) || 999) - (parseInt(b.order) || 999))
-
-  const assignedCount = Object.values(assignments).filter(a => a.time).length
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-
-        {/* Header */}
-        <div className="flex justify-between items-start mb-6 flex-wrap gap-3">
-          <div>
-            <h3 className="text-yellow-400 font-black text-lg">📅 Schedule Manager</h3>
-            <p className="text-gray-400 text-xs mt-1">
-              Heats are pulled from Heat Draw automatically. Set time and order for each.
-            </p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setShowManual(!showManual)}
-              className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
-              {showManual ? '✕ Cancel' : '➕ Add Semi/Final'}
-            </button>
-            <button onClick={saveAll} disabled={saving}
-              className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
-              {saving ? '⏳ Saving...' : `💾 Save All Times`}
-            </button>
-          </div>
-        </div>
-
-        {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : message.startsWith('⚠️') ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
-            {message}
-          </div>
-        )}
-
-        {/* Stats */}
-        <div className="flex gap-3 mb-6 flex-wrap">
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{allKeys.size}</div>
-            <div className="text-gray-400 text-xs">Total Slots</div>
-          </div>
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{assignedCount}</div>
-            <div className="text-gray-400 text-xs">Times Set</div>
-          </div>
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{allKeys.size - assignedCount}</div>
-            <div className="text-gray-400 text-xs">Pending</div>
-          </div>
-        </div>
-
-        {/* Add Manual Entry (Semi Final, Final) */}
-        {showManual && (
-          <div className="bg-gray-700 rounded-xl p-5 mb-6 border border-yellow-400/50">
-            <h4 className="text-yellow-400 font-black mb-4 text-sm">➕ Add Semi Final / Final / Custom</h4>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Class</label>
-                <select value={manualEntry.class_id}
-                  onChange={e => setManualEntry(p => ({...p, class_id: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
-                  {CLASSES.map(c => <option key={c} value={c}>{c} — {CLASS_INFO[c]}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Round</label>
-                <select value={manualEntry.round}
-                  onChange={e => setManualEntry(p => ({...p, round: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
-                  {ROUNDS.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Time (WITA)</label>
-                <input type="time" value={manualEntry.scheduled_time}
-                  onChange={e => setManualEntry(p => ({...p, scheduled_time: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-              </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Order #</label>
-                <input type="number" value={manualEntry.order_number} placeholder="Auto"
-                  onChange={e => setManualEntry(p => ({...p, order_number: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-              </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Notes</label>
-                <input type="text" value={manualEntry.notes} placeholder="Optional"
-                  onChange={e => setManualEntry(p => ({...p, notes: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-              </div>
-            </div>
-            <button onClick={addManual} disabled={saving}
-              className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-lg text-sm hover:bg-yellow-300 transition-colors disabled:opacity-50">
-              ✅ Add Entry
-            </button>
-          </div>
-        )}
-
-        {/* No Heats Warning */}
-        {heats.length === 0 && (
-          <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4 mb-6 text-center">
-            <p className="text-yellow-400 font-bold text-sm">⚠️ No heats assigned yet!</p>
-            <p className="text-gray-400 text-xs mt-1">
-              Go to the 🎲 Heat Draw tab first to assign riders to heats.<br/>
-              They will automatically appear here once saved.
-            </p>
-          </div>
-        )}
-
-        {/* Schedule Table */}
-        {sortedEntries.length > 0 && (
-          <div className="space-y-2">
-            {/* Column Headers */}
-            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
-              <div className="col-span-2">Class</div>
-              <div className="col-span-2">Round</div>
-              <div className="col-span-2">Order #</div>
-              <div className="col-span-3">Time (WITA)</div>
-              <div className="col-span-2">Notes</div>
-              <div className="col-span-1"></div>
-            </div>
-
-            {sortedEntries.map(({ key, class_id, round }) => {
-              const val = assignments[key] || { time:'', order:'', notes:'' }
-              const isFromHeatDraw = heats.some(h => h.class_id === class_id && h.round === round)
-              return (
-                <div key={key}
-                  className={`grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-2 border transition-colors ${
-                    val.time
-                      ? 'bg-gray-700 border-gray-600'
-                      : 'bg-gray-700/50 border-yellow-400/20'
-                  }`}>
-                  <div className="col-span-2">
-                    <span className="text-white font-black text-sm">{class_id}</span>
-                    <p className="text-gray-500 text-xs">{CLASS_INFO[class_id]}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      round === 'Final' ? 'bg-yellow-400 text-gray-900' :
-                      round === 'Semi Final' ? 'bg-orange-500 text-white' :
-                      'bg-gray-600 text-gray-300'
-                    }`}>
-                      {round}
-                    </span>
-                    {isFromHeatDraw && (
-                      <p className="text-gray-600 text-xs mt-0.5">from heat draw</p>
-                    )}
-                  </div>
-                  <div className="col-span-2">
-                    <input type="number" min="1" value={val.order}
-                      onChange={e => updateAssignment(key, 'order', e.target.value)}
-                      placeholder="#"
-                      className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400" />
-                  </div>
-                  <div className="col-span-3">
-                    <input type="time" value={val.time}
-                      onChange={e => updateAssignment(key, 'time', e.target.value)}
-                      className={`w-full bg-gray-600 border rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400 ${
-                        val.time ? 'border-gray-500' : 'border-yellow-400/50'
-                      }`} />
-                  </div>
-                  <div className="col-span-2">
-                    <input type="text" value={val.notes}
-                      onChange={e => updateAssignment(key, 'notes', e.target.value)}
-                      placeholder="Notes"
-                      className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-400" />
-                  </div>
-                  <div className="col-span-1 flex justify-center">
-                    <button onClick={() => deleteEntry(key)}
-                      className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
-                  </div>
-                </div>
-              )
-            })}
-
-            <div className="pt-4">
-              <button onClick={saveAll} disabled={saving}
-                className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
-                {saving ? '⏳ Saving...' : `💾 Save All Schedule Times (${assignedCount} set)`}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-// ─── Bulk Import ───────────────────────────────────────────────────────────
+// ─── Bulk Import ────────────────────────────────────────────────────────────
 function BulkImport() {
   const [selectedClass, setSelectedClass] = useState('K1')
   const [names, setNames] = useState('')
@@ -357,17 +24,12 @@ function BulkImport() {
   const [preview, setPreview] = useState([])
   const [importedCount, setImportedCount] = useState(0)
 
-  const parseNames = (text) =>
-    text.split('\n').map(n => n.trim()).filter(n => n.length > 0)
-
+  const parseNames = (text) => text.split('\n').map(n => n.trim()).filter(n => n.length > 0)
   useEffect(() => { setPreview(parseNames(names)) }, [names])
 
   const handleImport = async () => {
     const riderNames = parseNames(names)
-    if (riderNames.length === 0) {
-      setMessage('❌ Please enter at least one rider name!')
-      return
-    }
+    if (riderNames.length === 0) { setMessage('❌ Enter at least one name!'); return }
     setImporting(true)
     setMessage('')
     try {
@@ -376,22 +38,14 @@ function BulkImport() {
         .insert({ parent_name: `Walk-in Import — ${selectedClass}`, phone: 'N/A', email: '', address: '' })
         .select().single()
       if (regError) throw regError
-      const childRows = riderNames.map(name => ({
-        registration_id: reg.id,
-        child_name: name,
-        gender: gender,
-        date_of_birth: null,
-        classes: [selectedClass]
-      }))
-      const { error: childError } = await supabase.from('children').insert(childRows)
-      if (childError) throw childError
-      setImportedCount(prev => prev + riderNames.length)
+      const { error } = await supabase.from('children').insert(
+        riderNames.map(name => ({ registration_id: reg.id, child_name: name, gender, date_of_birth: null, classes: [selectedClass] }))
+      )
+      if (error) throw error
+      setImportedCount(p => p + riderNames.length)
       setMessage(`✅ Imported ${riderNames.length} riders into ${selectedClass}!`)
-      setNames('')
-      setPreview([])
-    } catch (error) {
-      setMessage('❌ Error: ' + error.message)
-    }
+      setNames(''); setPreview([])
+    } catch (err) { setMessage('❌ ' + err.message) }
     setImporting(false)
   }
 
@@ -399,17 +53,9 @@ function BulkImport() {
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-2">📥 Bulk Import Riders</h3>
-        <p className="text-gray-400 text-sm mb-6">Paste rider names from WhatsApp — one name per line. Select class then import!</p>
-        {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-            {message}
-          </div>
-        )}
-        {importedCount > 0 && (
-          <div className="bg-blue-500/20 border border-blue-500 rounded-xl p-3 mb-4 text-sm">
-            <span className="text-blue-400 font-bold">📊 Total imported this session: {importedCount} riders</span>
-          </div>
-        )}
+        <p className="text-gray-400 text-sm mb-6">Paste names from WhatsApp — one per line. Select class then import!</p>
+        {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
+        {importedCount > 0 && <div className="bg-blue-500/20 border border-blue-500 rounded-xl p-3 mb-4 text-sm text-blue-400 font-bold">📊 Total imported: {importedCount} riders</div>}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <div>
@@ -420,7 +66,7 @@ function BulkImport() {
               </select>
             </div>
             <div>
-              <label className="text-gray-400 text-xs mb-1 block font-bold">Gender (if known)</label>
+              <label className="text-gray-400 text-xs mb-1 block font-bold">Gender</label>
               <select value={gender} onChange={e => setGender(e.target.value)}
                 className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-400">
                 <option value="Unknown">Unknown / Mixed</option>
@@ -428,39 +74,27 @@ function BulkImport() {
                 <option value="Perempuan">Perempuan / Female</option>
               </select>
             </div>
-            <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4">
-              <p className="text-yellow-400 font-bold text-xs mb-2">💡 How to use:</p>
-              <ol className="text-gray-300 text-xs space-y-1">
-                <li>1. Select the class</li>
-                <li>2. Copy names from WhatsApp</li>
-                <li>3. Paste into the text box</li>
-                <li>4. One name per line</li>
-                <li>5. Click Import!</li>
-                <li>6. Repeat for each class</li>
-              </ol>
+            <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4 text-xs text-gray-300 space-y-1">
+              <p className="text-yellow-400 font-bold mb-2">💡 How to use:</p>
+              <p>1. Select class · 2. Paste names · 3. Import · 4. Repeat per class</p>
             </div>
           </div>
           <div>
-            <label className="text-gray-400 text-xs mb-1 block font-bold">Rider Names * — one per line</label>
+            <label className="text-gray-400 text-xs mb-1 block font-bold">Rider Names — one per line</label>
             <textarea value={names} onChange={e => setNames(e.target.value)}
-              placeholder={'Rider Name 1\nRider Name 2\nRider Name 3'}
-              rows={12}
+              placeholder={'Rider 1\nRider 2\nRider 3'} rows={10}
               className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-400 resize-none font-mono" />
-            {preview.length > 0 && (
-              <p className="text-yellow-400 text-xs mt-2 font-bold">
-                📋 {preview.length} rider{preview.length > 1 ? 's' : ''} ready for {selectedClass}
-              </p>
-            )}
+            {preview.length > 0 && <p className="text-yellow-400 text-xs mt-2 font-bold">📋 {preview.length} riders ready for {selectedClass}</p>}
           </div>
         </div>
         {preview.length > 0 && (
-          <div className="mt-6 bg-gray-700 rounded-xl p-4">
-            <p className="text-gray-400 text-xs font-bold mb-3">👁️ Preview:</p>
+          <div className="mt-4 bg-gray-700 rounded-xl p-4">
+            <p className="text-gray-400 text-xs font-bold mb-2">👁️ Preview:</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {preview.map((name, i) => (
-                <div key={i} className="bg-gray-600 rounded-lg px-3 py-2 flex items-center gap-2">
-                  <span className="text-yellow-400 font-black text-xs">{i + 1}</span>
-                  <span className="text-white text-xs font-bold truncate">{name}</span>
+                <div key={i} className="bg-gray-600 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                  <span className="text-yellow-400 font-black text-xs">{i+1}</span>
+                  <span className="text-white text-xs truncate">{name}</span>
                 </div>
               ))}
             </div>
@@ -475,120 +109,210 @@ function BulkImport() {
   )
 }
 
-// ─── Enter Results ─────────────────────────────────────────────────────────
-function EnterResults() {
-  const [form, setForm] = useState({ class_id:'K1', round:'Heat 1', position:'1', rider_name:'', qualified:false, notes:'' })
+// ─── Schedule Manager ────────────────────────────────────────────────────────
+function ScheduleManager() {
+  const [heats, setHeats] = useState([])
+  const [assignments, setAssignments] = useState({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
-  const [results, setResults] = useState([])
+  const [showManual, setShowManual] = useState(false)
+  const [manualEntry, setManualEntry] = useState({ class_id:'K1', round:'Semi Final', scheduled_time:'13:00', notes:'', order_number:'' })
+  const ROUNDS = ['Heat 1','Heat 2','Heat 3','Semi Final','Final']
 
-  useEffect(() => { fetchResults() }, [])
+  useEffect(() => { fetchData() }, [])
 
-  const fetchResults = async () => {
-    const { data } = await supabase.from('results').select('*')
-      .order('class_id').order('round').order('position')
-    setResults(data || [])
-  }
-
-  const handleSave = async () => {
-    if (!form.rider_name) { setMessage('❌ Enter rider name!'); return }
-    setSaving(true)
-    const { error } = await supabase.from('results').insert({
-      class_id: form.class_id, round: form.round,
-      position: parseInt(form.position), rider_name: form.rider_name,
-      qualified: form.qualified, notes: form.notes
+  const fetchData = async () => {
+    const [{ data: heatData }, { data: schedData }] = await Promise.all([
+      supabase.from('heats').select('class_id, heat_number').order('class_id').order('heat_number'),
+      supabase.from('schedule').select('*').order('order_number')
+    ])
+    const uniqueHeats = []
+    const seen = new Set()
+    ;(heatData || []).forEach(h => {
+      const key = `${h.class_id}_Heat ${h.heat_number}`
+      if (!seen.has(key)) { seen.add(key); uniqueHeats.push({ class_id: h.class_id, round: `Heat ${h.heat_number}` }) }
     })
-    if (error) setMessage('❌ Error: ' + error.message)
-    else {
-      setMessage('✅ Result saved!')
-      setForm(p => ({ ...p, rider_name:'', notes:'', position: String(parseInt(p.position)+1) }))
-      fetchResults()
-    }
-    setSaving(false)
-    setTimeout(() => setMessage(''), 3000)
+    setHeats(uniqueHeats)
+    const existing = {}
+    uniqueHeats.forEach(h => {
+      const key = `${h.class_id}__${h.round}`
+      const saved = schedData?.find(s => s.class_id === h.class_id && s.round === h.round)
+      existing[key] = { time: saved?.scheduled_time || '', order: saved?.order_number ? String(saved.order_number) : '', notes: saved?.notes || '', id: saved?.id || null }
+    })
+    schedData?.forEach(s => {
+      const isHeat = uniqueHeats.some(h => h.class_id === s.class_id && h.round === s.round)
+      if (!isHeat) {
+        const key = `${s.class_id}__${s.round}`
+        existing[key] = { time: s.scheduled_time, order: String(s.order_number), notes: s.notes || '', id: s.id }
+      }
+    })
+    setAssignments(existing)
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this result?')) return
-    await supabase.from('results').delete().eq('id', id)
-    fetchResults()
+  const showMsg = (text) => { setMessage(text); setTimeout(() => setMessage(''), 3000) }
+  const update = (key, field, value) => setAssignments(p => ({ ...p, [key]: { ...p[key], [field]: value } }))
+
+  const saveAll = async () => {
+    setSaving(true)
+    let saved = 0
+    for (const [key, val] of Object.entries(assignments)) {
+      if (!val.time) continue
+      const [class_id, round] = key.split('__')
+      const data = { class_id, round, scheduled_time: val.time, order_number: parseInt(val.order) || 999, notes: val.notes || null, status: 'upcoming' }
+      if (val.id) { await supabase.from('schedule').update(data).eq('id', val.id); saved++ }
+      else {
+        const { data: newEntry, error } = await supabase.from('schedule').insert(data).select().single()
+        if (!error) { saved++; setAssignments(p => ({ ...p, [key]: { ...p[key], id: newEntry.id } })) }
+      }
+    }
+    showMsg(`✅ Saved ${saved} entries!`)
+    setSaving(false)
+    fetchData()
   }
+
+  const deleteEntry = async (key) => {
+    const entry = assignments[key]
+    if (entry?.id) { if (!confirm('Remove from schedule?')) return; await supabase.from('schedule').delete().eq('id', entry.id) }
+    setAssignments(p => { const u = {...p}; delete u[key]; return u })
+    showMsg('✅ Removed!'); fetchData()
+  }
+
+  const addManual = async () => {
+    if (!manualEntry.scheduled_time) { showMsg('❌ Time required!'); return }
+    setSaving(true)
+    const maxOrder = Math.max(...Object.values(assignments).map(a => parseInt(a.order) || 0), 0)
+    const { error } = await supabase.from('schedule').insert({
+      class_id: manualEntry.class_id, round: manualEntry.round,
+      scheduled_time: manualEntry.scheduled_time, order_number: parseInt(manualEntry.order_number) || maxOrder + 1,
+      notes: manualEntry.notes || null, status: 'upcoming'
+    })
+    if (error) showMsg('❌ ' + error.message)
+    else { showMsg('✅ Added!'); setShowManual(false); fetchData() }
+    setSaving(false)
+  }
+
+  const allKeys = [...new Set([...heats.map(h => `${h.class_id}__${h.round}`), ...Object.keys(assignments)])]
+  const sorted = allKeys.map(key => { const [c, r] = key.split('__'); return { key, class_id: c, round: r, ...(assignments[key] || {}) } })
+    .sort((a, b) => (parseInt(a.order) || 999) - (parseInt(b.order) || 999))
+  const assignedCount = Object.values(assignments).filter(a => a.time).length
 
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-        <h3 className="text-yellow-400 font-black mb-4">➕ Add Result</h3>
-        {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-            {message}
+        <div className="flex justify-between items-start mb-6 flex-wrap gap-3">
+          <div>
+            <h3 className="text-yellow-400 font-black text-lg">📅 Schedule Manager</h3>
+            <p className="text-gray-400 text-xs mt-1">Heats auto-load from Heat Draw. Set time & order, then save.</p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={() => setShowManual(!showManual)}
+              className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
+              {showManual ? '✕ Cancel' : '➕ Add Semi/Final'}
+            </button>
+            <button onClick={saveAll} disabled={saving}
+              className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
+              {saving ? '⏳ Saving...' : '💾 Save All Times'}
+            </button>
+          </div>
+        </div>
+        {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
+        <div className="flex gap-3 mb-6">
+          {[{ label:'Total Slots', v: allKeys.length }, { label:'Times Set', v: assignedCount }, { label:'Pending', v: allKeys.length - assignedCount }].map(({ label, v }) => (
+            <div key={label} className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+              <div className="text-yellow-400 font-black">{v}</div>
+              <div className="text-gray-400 text-xs">{label}</div>
+            </div>
+          ))}
+        </div>
+        {showManual && (
+          <div className="bg-gray-700 rounded-xl p-5 mb-6 border border-yellow-400/50">
+            <h4 className="text-yellow-400 font-black mb-4 text-sm">➕ Add Semi Final / Final</h4>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Class</label>
+                <select value={manualEntry.class_id} onChange={e => setManualEntry(p => ({...p, class_id: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
+                  {CLASSES.map(c => <option key={c} value={c}>{c} — {CLASS_INFO[c]}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Round</label>
+                <select value={manualEntry.round} onChange={e => setManualEntry(p => ({...p, round: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
+                  {ROUNDS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Time</label>
+                <input type="time" value={manualEntry.scheduled_time} onChange={e => setManualEntry(p => ({...p, scheduled_time: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Order #</label>
+                <input type="number" value={manualEntry.order_number} placeholder="Auto" onChange={e => setManualEntry(p => ({...p, order_number: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+              </div>
+              <div>
+                <label className="text-gray-400 text-xs mb-1 block">Notes</label>
+                <input type="text" value={manualEntry.notes} placeholder="Optional" onChange={e => setManualEntry(p => ({...p, notes: e.target.value}))}
+                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+              </div>
+            </div>
+            <button onClick={addManual} disabled={saving} className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-lg text-sm hover:bg-yellow-300 transition-colors disabled:opacity-50">
+              ✅ Add Entry
+            </button>
           </div>
         )}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-          <div>
-            <label className="text-gray-400 text-xs mb-1 block">Class</label>
-            <select value={form.class_id} onChange={e => setForm(p => ({...p, class_id: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
-              {CLASSES.map(k => <option key={k} value={k}>{k} — {CLASS_INFO[k]}</option>)}
-            </select>
+        {heats.length === 0 && (
+          <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4 mb-6 text-center">
+            <p className="text-yellow-400 font-bold text-sm">⚠️ No heats assigned yet!</p>
+            <p className="text-gray-400 text-xs mt-1">Go to 🎲 Heat Draw tab first → assign riders → Save.</p>
           </div>
-          <div>
-            <label className="text-gray-400 text-xs mb-1 block">Round</label>
-            <select value={form.round} onChange={e => setForm(p => ({...p, round: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
-              {['Heat 1','Heat 2','Semi Final','Final'].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-gray-400 text-xs mb-1 block">Position</label>
-            <input type="number" min="1" value={form.position}
-              onChange={e => setForm(p => ({...p, position: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-gray-400 text-xs mb-1 block">Rider Name</label>
-            <input type="text" value={form.rider_name} placeholder="Nama pembalap"
-              onChange={e => setForm(p => ({...p, rider_name: e.target.value}))}
-              onKeyDown={e => e.key === 'Enter' && handleSave()}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
-          <div>
-            <label className="text-gray-400 text-xs mb-1 block">Notes (optional)</label>
-            <input type="text" value={form.notes} placeholder="e.g. DNF"
-              onChange={e => setForm(p => ({...p, notes: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.qualified}
-              onChange={e => setForm(p => ({...p, qualified: e.target.checked}))}
-              className="w-4 h-4 accent-yellow-400" />
-            <span className="text-gray-300 text-sm font-bold">✅ Qualified to next round</span>
-          </label>
-          <button onClick={handleSave} disabled={saving}
-            className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
-            {saving ? 'Saving...' : '💾 Save Result'}
-          </button>
-        </div>
-      </div>
-      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-        <h3 className="text-yellow-400 font-black mb-4">📋 Saved Results ({results.length})</h3>
-        {results.length === 0 ? (
-          <p className="text-gray-500 text-sm">No results yet.</p>
-        ) : (
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {results.map(r => (
-              <div key={r.id} className="bg-gray-700 rounded-xl px-4 py-3 flex justify-between items-center">
-                <div>
-                  <span className="text-yellow-400 font-black mr-2">{r.class_id}</span>
-                  <span className="text-gray-400 text-xs mr-2">{r.round}</span>
-                  <span className="text-white font-bold">#{r.position} {r.rider_name}</span>
-                  {r.qualified && <span className="ml-2 text-green-400 text-xs font-bold">✅ QF</span>}
+        )}
+        {sorted.length > 0 && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+              <div className="col-span-2">Class</div>
+              <div className="col-span-2">Round</div>
+              <div className="col-span-2">Order #</div>
+              <div className="col-span-3">Time (WITA)</div>
+              <div className="col-span-2">Notes</div>
+              <div className="col-span-1"></div>
+            </div>
+            {sorted.map(({ key, class_id, round, time, order, notes }) => (
+              <div key={key} className={`grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-2 border transition-colors ${time ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-yellow-400/20'}`}>
+                <div className="col-span-2">
+                  <span className="text-white font-black text-sm">{class_id}</span>
+                  <p className="text-gray-500 text-xs">{CLASS_INFO[class_id]}</p>
                 </div>
-                <button onClick={() => handleDelete(r.id)}
-                  className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">✕</button>
+                <div className="col-span-2">
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${round === 'Final' ? 'bg-yellow-400 text-gray-900' : round === 'Semi Final' ? 'bg-orange-500 text-white' : 'bg-gray-600 text-gray-300'}`}>
+                    {round}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <input type="number" min="1" value={order} onChange={e => update(key, 'order', e.target.value)} placeholder="#"
+                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div className="col-span-3">
+                  <input type="time" value={time} onChange={e => update(key, 'time', e.target.value)}
+                    className={`w-full bg-gray-600 border rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400 ${time ? 'border-gray-500' : 'border-yellow-400/50'}`} />
+                </div>
+                <div className="col-span-2">
+                  <input type="text" value={notes} onChange={e => update(key, 'notes', e.target.value)} placeholder="Notes"
+                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div className="col-span-1 flex justify-center">
+                  <button onClick={() => deleteEntry(key)} className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                </div>
               </div>
             ))}
+            <div className="pt-4">
+              <button onClick={saveAll} disabled={saving}
+                className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
+                {saving ? '⏳ Saving...' : `💾 Save All Schedule Times (${assignedCount} set)`}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -596,7 +320,191 @@ function EnterResults() {
   )
 }
 
-// ─── Heat Draw Manager ─────────────────────────────────────────────────────
+// ─── Enter Results (Session-Based) ──────────────────────────────────────────
+function RaceControl() {
+  const [schedule, setSchedule] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState(null)
+  const [riders, setRiders] = useState([])
+  const [positions, setPositions] = useState({})
+  const [qualified, setQualified] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => { fetchSchedule() }, [])
+
+  const fetchSchedule = async () => {
+    setLoading(true)
+    const { data } = await supabase.from('schedule').select('*').order('order_number')
+    setSchedule(data || [])
+    setLoading(false)
+  }
+
+  const startRace = async (item) => {
+    await supabase.from('schedule').update({ status: 'racing' }).eq('id', item.id)
+    fetchSchedule()
+  }
+
+  const openResults = async (item) => {
+    setExpandedId(item.id)
+    setPositions({})
+    setQualified({})
+    setMessage('')
+
+    const heatNum = parseInt(item.round.replace('Heat ', ''))
+    if (!isNaN(heatNum)) {
+      const { data } = await supabase.from('heats').select('*')
+        .eq('class_id', item.class_id).eq('heat_number', heatNum).order('lane')
+      setRiders(data || [])
+    } else {
+      const { data } = await supabase.from('results').select('rider_name')
+        .eq('class_id', item.class_id).eq('qualified', true)
+      setRiders([...new Set((data || []).map(r => r.rider_name))].map(n => ({ rider_name: n })))
+    }
+
+    const { data: existing } = await supabase.from('results').select('*')
+      .eq('class_id', item.class_id).eq('round', item.round)
+    if (existing?.length > 0) {
+      const pos = {}; const qual = {}
+      existing.forEach(r => { pos[r.rider_name] = String(r.position); qual[r.rider_name] = r.qualified })
+      setPositions(pos); setQualified(qual)
+    }
+  }
+
+  const closeResults = () => { setExpandedId(null); setRiders([]); setPositions({}); setQualified({}) }
+
+  const saveResults = async (item) => {
+    const ranked = riders.filter(r => positions[r.rider_name])
+    if (ranked.length === 0) { setMessage('❌ Assign at least one position!'); return }
+    setSaving(true)
+    try {
+      await supabase.from('results').delete().eq('class_id', item.class_id).eq('round', item.round)
+      const { error } = await supabase.from('results').insert(
+        ranked.map(r => ({ class_id: item.class_id, round: item.round, position: parseInt(positions[r.rider_name]), rider_name: r.rider_name, qualified: qualified[r.rider_name] || false }))
+      )
+      if (error) throw error
+      await supabase.from('schedule').update({ status: 'done' }).eq('id', item.id)
+      setMessage('✅ Saved!')
+      await fetchSchedule()
+      setTimeout(() => closeResults(), 800)
+    } catch (err) { setMessage('❌ ' + err.message) }
+    setSaving(false)
+  }
+
+  const statusBadge = {
+    upcoming: 'border-gray-500 text-gray-400',
+    racing:   'border-green-500 text-green-400 bg-green-500/10 animate-pulse',
+    done:     'border-gray-700 text-gray-600'
+  }
+
+  return (
+    <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+      <h2 className="text-yellow-400 font-black mb-6">🏁 Race Control & Results</h2>
+
+      {loading ? (
+        <div className="text-center py-12 text-yellow-400 animate-pulse font-bold">Loading...</div>
+      ) : schedule.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <div className="text-4xl mb-3">📅</div>
+          <p className="font-bold text-white">No schedule entries yet.</p>
+          <p className="text-sm mt-2">Go to 📅 Schedule Manager → set times → Save All Times</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {schedule.map(item => (
+            <div key={item.id} className={`rounded-xl border transition-colors overflow-hidden ${expandedId === item.id ? 'border-yellow-400' : 'border-gray-600'}`}>
+              <div className="bg-gray-700 px-5 py-3 flex justify-between items-center flex-wrap gap-3">
+                <div>
+                  <span className="text-white font-black text-lg mr-3">{item.class_id}</span>
+                  <span className="text-gray-400 text-sm">{CLASS_INFO[item.class_id]} · {item.round} · {item.scheduled_time} WITA</span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${statusBadge[item.status]}`}>
+                    {item.status === 'upcoming' ? '⏳ Upcoming' : item.status === 'racing' ? '🏁 Racing' : '✅ Done'}
+                  </span>
+                  {item.status === 'upcoming' && (
+                    <button onClick={() => startRace(item)}
+                      className="bg-green-500 text-white font-bold px-4 py-1.5 rounded-full text-xs hover:bg-green-600 transition-colors">
+                      🏁 Start Race
+                    </button>
+                  )}
+                  {item.status === 'racing' && (
+                    <button onClick={() => expandedId === item.id ? closeResults() : openResults(item)}
+                      className="bg-yellow-400 text-gray-900 font-bold px-4 py-1.5 rounded-full text-xs hover:bg-yellow-300 transition-colors">
+                      {expandedId === item.id ? '▲ Close' : '✅ Done — Enter Results'}
+                    </button>
+                  )}
+                  {item.status === 'done' && (
+                    <button onClick={() => expandedId === item.id ? closeResults() : openResults(item)}
+                      className="border border-gray-500 text-gray-300 font-bold px-4 py-1.5 rounded-full text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors">
+                      {expandedId === item.id ? '▲ Close' : '✏️ Edit Results'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {expandedId === item.id && (
+                <div className="bg-gray-800 px-5 py-5 border-t border-gray-600">
+                  {message && (
+                    <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                      {message}
+                    </div>
+                  )}
+                  {riders.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <div className="text-3xl mb-2">👶</div>
+                      <p>No riders found for this heat.</p>
+                      <p className="text-xs mt-1">Check 🎲 Heat Draw for {item.class_id}.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2 mb-4">
+                        <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+                          <div className="col-span-1">#</div>
+                          <div className="col-span-6">Rider Name</div>
+                          <div className="col-span-3">Finish Pos.</div>
+                          <div className="col-span-2">Qualified</div>
+                        </div>
+                        {riders.map((rider, idx) => (
+                          <div key={rider.rider_name || idx}
+                            className={`grid grid-cols-12 gap-3 items-center rounded-xl px-3 py-3 border transition-colors ${positions[rider.rider_name] ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-gray-700'}`}>
+                            <div className="col-span-1 text-gray-500 text-sm font-bold">{idx+1}</div>
+                            <div className="col-span-6 text-white font-bold">{rider.rider_name}</div>
+                            <div className="col-span-3">
+                              <select value={positions[rider.rider_name] || ''} onChange={e => setPositions(p => ({...p, [rider.rider_name]: e.target.value}))}
+                                className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                                <option value="">— Rank —</option>
+                                {riders.map((_, i) => <option key={i+1} value={String(i+1)}>{i===0?'🥇 1st':i===1?'🥈 2nd':i===2?'🥉 3rd':`#${i+1}`}</option>)}
+                              </select>
+                            </div>
+                            <div className="col-span-2">
+                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                <input type="checkbox" checked={qualified[rider.rider_name] || false}
+                                  onChange={e => setQualified(p => ({...p, [rider.rider_name]: e.target.checked}))}
+                                  className="w-4 h-4 accent-yellow-400" />
+                                <span className="text-green-400 text-xs font-bold">QF</span>
+                              </label>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <button onClick={() => saveResults(item)} disabled={saving}
+                        className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
+                        {saving ? '⏳ Saving...' : '💾 Save Results & Mark Done'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Heat Draw Manager ───────────────────────────────────────────────────────
 function HeatDrawManager({ registrations }) {
   const [selectedClass, setSelectedClass] = useState('K1')
   const [assignments, setAssignments] = useState({})
@@ -610,79 +518,67 @@ function HeatDrawManager({ registrations }) {
   const showMessage = (text) => { setMessage(text); setTimeout(() => setMessage(''), 4000) }
 
   const loadClass = async (cls) => {
-    const riders = registrations.flatMap(r =>
-      (r.children || []).filter(c => c.classes?.includes(cls)).map(c => c.child_name)
-    )
-    const { data } = await supabase.from('heats').select('*').eq('class_id', cls)
-      .order('heat_number').order('lane')
+    const riders = registrations.flatMap(r => (r.children || []).filter(c => c.classes?.includes(cls)).map(c => c.child_name))
+    const { data } = await supabase.from('heats').select('*').eq('class_id', cls).order('heat_number').order('lane')
     setSavedHeats(data || [])
     const existing = {}
     riders.forEach(name => {
       const saved = data?.find(h => h.rider_name === name)
       existing[name] = { heat: saved ? String(saved.heat_number) : '' }
     })
-    data?.forEach(h => {
-      if (!existing[h.rider_name]) existing[h.rider_name] = { heat: String(h.heat_number) }
-    })
+    data?.forEach(h => { if (!existing[h.rider_name]) existing[h.rider_name] = { heat: String(h.heat_number) } })
     setAssignments(existing)
   }
 
-  const updateAssignment = (rider, value) =>
-    setAssignments(prev => ({ ...prev, [rider]: { heat: value } }))
+  const updateAssignment = (rider, value) => setAssignments(p => ({ ...p, [rider]: { heat: value } }))
+
+  const randomlyAssign = () => {
+    const riderList = Object.keys(assignments)
+    if (riderList.length === 0) return
+    const shuffled = [...riderList].sort(() => Math.random() - 0.5)
+    const newAssignments = { ...assignments }
+    shuffled.forEach((name, i) => { newAssignments[name] = { heat: String((i % heatCount) + 1) } })
+    setAssignments(newAssignments)
+    showMessage('🎲 Randomly assigned! Review and adjust if needed.')
+  }
 
   const addManualRider = () => {
     const name = prompt('Enter rider name:')
     if (!name?.trim()) return
-    setAssignments(prev => ({ ...prev, [name.trim()]: { heat: '' } }))
+    setAssignments(p => ({ ...p, [name.trim()]: { heat: '' } }))
   }
 
-  const removeRider = (name) => {
-    setAssignments(prev => { const u = { ...prev }; delete u[name]; return u })
-  }
+  const removeRider = (name) => { setAssignments(p => { const u = {...p}; delete u[name]; return u }) }
 
   const saveAll = async () => {
-    const toSave = Object.entries(assignments).filter(([_, val]) => val.heat)
-    if (toSave.length === 0) { showMessage('❌ No riders assigned to any heat yet!'); return }
+    const toSave = Object.entries(assignments).filter(([_, v]) => v.heat)
+    if (toSave.length === 0) { showMessage('❌ No riders assigned!'); return }
     setSaving(true)
     await supabase.from('heats').delete().eq('class_id', selectedClass)
     const heatCounters = {}
-    const rows = toSave
-      .sort(([_a, a], [_b, b]) => parseInt(a.heat) - parseInt(b.heat))
-      .map(([name, val]) => {
-        const h = parseInt(val.heat)
-        heatCounters[h] = (heatCounters[h] || 0) + 1
-        return { class_id: selectedClass, heat_number: h, rider_name: name, lane: heatCounters[h] }
-      })
+    const rows = toSave.sort(([_a, a], [_b, b]) => parseInt(a.heat) - parseInt(b.heat))
+      .map(([name, val]) => { const h = parseInt(val.heat); heatCounters[h] = (heatCounters[h]||0)+1; return { class_id: selectedClass, heat_number: h, rider_name: name, lane: heatCounters[h] } })
     const { error } = await supabase.from('heats').insert(rows)
-    if (error) showMessage('❌ Error: ' + error.message)
-    else {
-      showMessage(`✅ Saved ${rows.length} riders for ${selectedClass}!`)
-      loadClass(selectedClass)
-    }
+    if (error) showMessage('❌ ' + error.message)
+    else { showMessage(`✅ Saved ${rows.length} riders for ${selectedClass}!`); loadClass(selectedClass) }
     setSaving(false)
   }
 
   const clearClass = async () => {
-    if (!confirm(`Clear all heat assignments for ${selectedClass}?`)) return
+    if (!confirm(`Clear all heats for ${selectedClass}?`)) return
     await supabase.from('heats').delete().eq('class_id', selectedClass)
-    showMessage(`✅ Cleared ${selectedClass}`)
-    loadClass(selectedClass)
+    showMessage(`✅ Cleared`); loadClass(selectedClass)
   }
 
   const riders = Object.keys(assignments)
   const assignedCount = riders.filter(r => assignments[r].heat).length
-  const heatNums = [...new Set(Object.values(assignments).map(v => v.heat).filter(Boolean))]
-    .sort((a, b) => parseInt(a) - parseInt(b))
+  const heatNums = [...new Set(Object.values(assignments).map(v => v.heat).filter(Boolean))].sort((a,b) => parseInt(a)-parseInt(b))
 
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-6">✍️ Manual Heat Assignment</h3>
-        {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-            {message}
-          </div>
-        )}
+        {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') || message.startsWith('🎲') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
         <div className="flex flex-wrap gap-4 items-end mb-6">
           <div>
             <label className="text-gray-400 text-xs mb-1 block">Select Class</label>
@@ -693,24 +589,22 @@ function HeatDrawManager({ registrations }) {
           </div>
           <div>
             <label className="text-gray-400 text-xs mb-1 block">Number of Heats</label>
-            <input type="number" min="1" max="10" value={heatCount}
-              onChange={e => setHeatCount(parseInt(e.target.value))}
+            <input type="number" min="1" max="10" value={heatCount} onChange={e => setHeatCount(parseInt(e.target.value))}
               className="w-24 bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
           </div>
-          <button onClick={addManualRider}
-            className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
-            ➕ Add Rider Manually
+          <button onClick={addManualRider} className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
+            ➕ Add Rider
           </button>
+          {riders.length > 0 && (
+            <button onClick={randomlyAssign} className="border border-purple-400 text-purple-400 font-bold px-4 py-2 rounded-xl hover:bg-purple-400 hover:text-white transition-colors text-sm">
+              🎲 Randomly Assign All
+            </button>
+          )}
         </div>
         <div className="flex gap-3 mb-4 flex-wrap">
-          {[
-            { label: 'Total', value: riders.length },
-            { label: 'Assigned', value: assignedCount },
-            { label: 'Unassigned', value: riders.length - assignedCount },
-            { label: 'Heats', value: heatNums.length },
-          ].map(({ label, value }) => (
+          {[{ label:'Total', v: riders.length }, { label:'Assigned', v: assignedCount }, { label:'Unassigned', v: riders.length - assignedCount }, { label:'Heats', v: heatNums.length }].map(({ label, v }) => (
             <div key={label} className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-              <div className="text-yellow-400 font-black">{value}</div>
+              <div className="text-yellow-400 font-black">{v}</div>
               <div className="text-gray-400 text-xs">{label}</div>
             </div>
           ))}
@@ -718,8 +612,8 @@ function HeatDrawManager({ registrations }) {
         {riders.length === 0 ? (
           <div className="text-center py-10 text-gray-500">
             <div className="text-4xl mb-3">👶</div>
-            <p>No riders for {selectedClass} yet.</p>
-            <p className="text-xs mt-1">Use Bulk Import or add manually above.</p>
+            <p>No riders for {selectedClass}.</p>
+            <p className="text-xs mt-1">Use 📥 Bulk Import or add manually above.</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -729,25 +623,20 @@ function HeatDrawManager({ registrations }) {
               <div className="col-span-1"></div>
             </div>
             {riders.map(name => (
-              <div key={name}
-                className={`grid grid-cols-12 gap-3 items-center bg-gray-700 rounded-xl px-3 py-2 border transition-colors ${assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'}`}>
+              <div key={name} className={`grid grid-cols-12 gap-3 items-center bg-gray-700 rounded-xl px-3 py-2 border transition-colors ${assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'}`}>
                 <div className="col-span-8">
                   <p className="text-white font-bold text-sm">{name}</p>
                   {!assignments[name].heat && <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>}
                 </div>
                 <div className="col-span-3">
-                  <select value={assignments[name]?.heat || ''}
-                    onChange={e => updateAssignment(name, e.target.value)}
+                  <select value={assignments[name]?.heat || ''} onChange={e => updateAssignment(name, e.target.value)}
                     className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
                     <option value="">— Pick —</option>
-                    {Array.from({ length: heatCount }, (_, i) => i + 1).map(n => (
-                      <option key={n} value={String(n)}>Heat {n}</option>
-                    ))}
+                    {Array.from({ length: heatCount }, (_, i) => i+1).map(n => <option key={n} value={String(n)}>Heat {n}</option>)}
                   </select>
                 </div>
                 <div className="col-span-1 flex justify-center">
-                  <button onClick={() => removeRider(name)}
-                    className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                  <button onClick={() => removeRider(name)} className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
                 </div>
               </div>
             ))}
@@ -755,19 +644,16 @@ function HeatDrawManager({ registrations }) {
         )}
         {riders.length > 0 && (
           <div className="flex gap-3 mt-6 flex-wrap">
-            <button onClick={saveAll} disabled={saving}
-              className="bg-yellow-400 text-gray-900 font-black px-8 py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
+            <button onClick={saveAll} disabled={saving} className="bg-yellow-400 text-gray-900 font-black px-8 py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
               {saving ? '⏳ Saving...' : '💾 Save Heat Draw'}
             </button>
             {savedHeats.length > 0 && (
               <>
-                <button onClick={() => exportHeatDrawPDF(savedHeats, selectedClass)}
-                  className="border border-blue-400 text-blue-400 font-bold px-4 py-3 rounded-xl hover:bg-blue-400 hover:text-white transition-colors text-sm">
-                  🖨️ Export {selectedClass} PDF
+                <button onClick={() => exportHeatDrawPDF(savedHeats, selectedClass)} className="border border-blue-400 text-blue-400 font-bold px-4 py-3 rounded-xl hover:bg-blue-400 hover:text-white transition-colors text-sm">
+                  🖨️ Export PDF
                 </button>
-                <button onClick={clearClass}
-                  className="border border-red-400 text-red-400 font-bold px-4 py-3 rounded-xl hover:bg-red-400 hover:text-white transition-colors text-sm">
-                  🗑️ Clear {selectedClass}
+                <button onClick={clearClass} className="border border-red-400 text-red-400 font-bold px-4 py-3 rounded-xl hover:bg-red-400 hover:text-white transition-colors text-sm">
+                  🗑️ Clear
                 </button>
               </>
             )}
@@ -789,9 +675,7 @@ function HeatDrawManager({ registrations }) {
                   <div className="divide-y divide-gray-600">
                     {heatRiders.map(([name], idx) => (
                       <div key={name} className="px-4 py-2 flex items-center gap-3">
-                        <div className="w-6 h-6 bg-gray-600 text-gray-300 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0">
-                          {idx + 1}
-                        </div>
+                        <div className="w-6 h-6 bg-gray-600 text-gray-300 rounded-full flex items-center justify-center font-black text-xs">{idx+1}</div>
                         <p className="text-white font-bold text-sm">{name}</p>
                       </div>
                     ))}
@@ -806,7 +690,7 @@ function HeatDrawManager({ registrations }) {
   )
 }
 
-// ─── Gallery Manager ───────────────────────────────────────────────────────
+// ─── Gallery Manager ─────────────────────────────────────────────────────────
 function GalleryManager() {
   const [photos, setPhotos] = useState([])
   const [form, setForm] = useState({ title:'', image_url:'', event_name:'', year:'2026' })
@@ -814,98 +698,42 @@ function GalleryManager() {
   const [message, setMessage] = useState('')
 
   useEffect(() => { fetchPhotos() }, [])
-
-  const fetchPhotos = async () => {
-    const { data } = await supabase.from('gallery').select('*').order('created_at', { ascending: false })
-    setPhotos(data || [])
-  }
+  const fetchPhotos = async () => { const { data } = await supabase.from('gallery').select('*').order('created_at', { ascending: false }); setPhotos(data || []) }
 
   const handleSave = async () => {
-    if (!form.title || !form.image_url) { setMessage('❌ Title and image URL required!'); return }
+    if (!form.title || !form.image_url) { setMessage('❌ Title and URL required!'); return }
     setSaving(true)
-    const { error } = await supabase.from('gallery').insert({
-      title: form.title, image_url: form.image_url,
-      event_name: form.event_name, year: parseInt(form.year)
-    })
+    const { error } = await supabase.from('gallery').insert({ title: form.title, image_url: form.image_url, event_name: form.event_name, year: parseInt(form.year) })
     if (error) setMessage('❌ ' + error.message)
-    else {
-      setMessage('✅ Photo added!')
-      setForm({ title:'', image_url:'', event_name:'', year:'2026' })
-      fetchPhotos()
-    }
-    setSaving(false)
-    setTimeout(() => setMessage(''), 3000)
+    else { setMessage('✅ Photo added!'); setForm({ title:'', image_url:'', event_name:'', year:'2026' }); fetchPhotos() }
+    setSaving(false); setTimeout(() => setMessage(''), 3000)
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this photo?')) return
-    await supabase.from('gallery').delete().eq('id', id)
-    fetchPhotos()
-  }
+  const handleDelete = async (id) => { if (!confirm('Delete?')) return; await supabase.from('gallery').delete().eq('id', id); fetchPhotos() }
 
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-2">➕ Add Photo</h3>
-        <p className="text-gray-400 text-xs mb-4">💡 Upload to Google Photos or Imgur and paste the direct image URL here.</p>
-        {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-            {message}
-          </div>
-        )}
+        <p className="text-gray-400 text-xs mb-4">💡 Upload to Google Photos or Imgur and paste the direct URL.</p>
+        {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="text-gray-400 text-xs mb-1 block">Photo Title *</label>
-            <input type="text" value={form.title} placeholder="e.g. K1 Final Race"
-              onChange={e => setForm(p => ({...p, title: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
-          <div>
-            <label className="text-gray-400 text-xs mb-1 block">Year</label>
-            <input type="number" value={form.year}
-              onChange={e => setForm(p => ({...p, year: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-gray-400 text-xs mb-1 block">Image URL *</label>
-            <input type="url" value={form.image_url} placeholder="https://..."
-              onChange={e => setForm(p => ({...p, image_url: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-gray-400 text-xs mb-1 block">Event Name</label>
-            <input type="text" value={form.event_name} placeholder="e.g. Championship 2026"
-              onChange={e => setForm(p => ({...p, event_name: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
+          <div><label className="text-gray-400 text-xs mb-1 block">Title *</label><input type="text" value={form.title} placeholder="e.g. K1 Final" onChange={e => setForm(p => ({...p, title: e.target.value}))} className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" /></div>
+          <div><label className="text-gray-400 text-xs mb-1 block">Year</label><input type="number" value={form.year} onChange={e => setForm(p => ({...p, year: e.target.value}))} className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" /></div>
+          <div className="md:col-span-2"><label className="text-gray-400 text-xs mb-1 block">Image URL *</label><input type="url" value={form.image_url} placeholder="https://..." onChange={e => setForm(p => ({...p, image_url: e.target.value}))} className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" /></div>
+          <div className="md:col-span-2"><label className="text-gray-400 text-xs mb-1 block">Event Name</label><input type="text" value={form.event_name} placeholder="e.g. Championship 2026" onChange={e => setForm(p => ({...p, event_name: e.target.value}))} className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" /></div>
         </div>
-        {form.image_url && (
-          <div className="mb-4">
-            <p className="text-gray-400 text-xs mb-2">Preview:</p>
-            <img src={form.image_url} alt="preview" className="h-32 w-32 object-cover rounded-xl border border-gray-600"
-              onError={e => { e.target.src = 'https://placehold.co/128x128/1f2937/facc15?text=❌' }} />
-          </div>
-        )}
-        <button onClick={handleSave} disabled={saving}
-          className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
-          {saving ? 'Saving...' : '💾 Add Photo'}
-        </button>
+        {form.image_url && <div className="mb-4"><p className="text-gray-400 text-xs mb-2">Preview:</p><img src={form.image_url} alt="preview" className="h-32 w-32 object-cover rounded-xl border border-gray-600" onError={e => { e.target.src = 'https://placehold.co/128x128/1f2937/facc15?text=❌' }} /></div>}
+        <button onClick={handleSave} disabled={saving} className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">{saving ? 'Saving...' : '💾 Add Photo'}</button>
       </div>
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">📸 All Photos ({photos.length})</h3>
-        {photos.length === 0 ? (
-          <p className="text-gray-500 text-sm">No photos yet.</p>
-        ) : (
+        {photos.length === 0 ? <p className="text-gray-500 text-sm">No photos yet.</p> : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {photos.map(photo => (
-              <div key={photo.id} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
-                <img src={photo.image_url} alt={photo.title} className="w-full aspect-square object-cover"
-                  onError={e => { e.target.src = 'https://placehold.co/200x200/1f2937/facc15?text=📸' }} />
-                <div className="p-3">
-                  <p className="text-white font-bold text-xs truncate">{photo.title}</p>
-                  <button onClick={() => handleDelete(photo.id)}
-                    className="text-red-400 hover:text-red-300 text-xs mt-1 font-bold">✕ Delete</button>
-                </div>
+            {photos.map(p => (
+              <div key={p.id} className="bg-gray-700 rounded-xl overflow-hidden border border-gray-600">
+                <img src={p.image_url} alt={p.title} className="w-full aspect-square object-cover" onError={e => { e.target.src = 'https://placehold.co/200x200/1f2937/facc15?text=📸' }} />
+                <div className="p-3"><p className="text-white font-bold text-xs truncate">{p.title}</p><button onClick={() => handleDelete(p.id)} className="text-red-400 text-xs mt-1 font-bold">✕ Delete</button></div>
               </div>
             ))}
           </div>
@@ -915,7 +743,7 @@ function GalleryManager() {
   )
 }
 
-// ─── Events Manager ────────────────────────────────────────────────────────
+// ─── Events Manager ──────────────────────────────────────────────────────────
 function EventsManager() {
   const [events, setEvents] = useState([])
   const [form, setForm] = useState({ name:'', date:'', location:'', description:'', total_riders:'0' })
@@ -923,81 +751,39 @@ function EventsManager() {
   const [message, setMessage] = useState('')
 
   useEffect(() => { fetchEvents() }, [])
-
-  const fetchEvents = async () => {
-    const { data } = await supabase.from('events').select('*').order('created_at', { ascending: false })
-    setEvents(data || [])
-  }
+  const fetchEvents = async () => { const { data } = await supabase.from('events').select('*').order('created_at', { ascending: false }); setEvents(data || []) }
 
   const handleSave = async () => {
-    if (!form.name || !form.date || !form.location) { setMessage('❌ Fill name, date and location!'); return }
+    if (!form.name || !form.date || !form.location) { setMessage('❌ Name, date and location required!'); return }
     setSaving(true)
-    const { error } = await supabase.from('events').insert({
-      name: form.name, date: form.date, location: form.location,
-      description: form.description, total_riders: parseInt(form.total_riders) || 0, status: 'completed'
-    })
+    const { error } = await supabase.from('events').insert({ name: form.name, date: form.date, location: form.location, description: form.description, total_riders: parseInt(form.total_riders)||0, status:'completed' })
     if (error) setMessage('❌ ' + error.message)
-    else {
-      setMessage('✅ Event saved!')
-      setForm({ name:'', date:'', location:'', description:'', total_riders:'0' })
-      fetchEvents()
-    }
-    setSaving(false)
-    setTimeout(() => setMessage(''), 3000)
+    else { setMessage('✅ Event saved!'); setForm({ name:'', date:'', location:'', description:'', total_riders:'0' }); fetchEvents() }
+    setSaving(false); setTimeout(() => setMessage(''), 3000)
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this event?')) return
-    await supabase.from('events').delete().eq('id', id)
-    fetchEvents()
-  }
+  const handleDelete = async (id) => { if (!confirm('Delete?')) return; await supabase.from('events').delete().eq('id', id); fetchEvents() }
 
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">➕ Add Past Event</h3>
-        {message && (
-          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-            {message}
-          </div>
-        )}
+        {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          {[
-            { key:'name', label:'Event Name', placeholder:'Championship 2026' },
-            { key:'date', label:'Date', placeholder:'20-21 Juni 2026' },
-            { key:'location', label:'Location', placeholder:'Kupang, NTT' },
-            { key:'total_riders', label:'Total Riders', placeholder:'0' },
-          ].map(({ key, label, placeholder }) => (
-            <div key={key}>
-              <label className="text-gray-400 text-xs mb-1 block">{label}</label>
-              <input type="text" value={form[key]} placeholder={placeholder}
-                onChange={e => setForm(p => ({...p, [key]: e.target.value}))}
-                className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-            </div>
+          {[{ key:'name', label:'Event Name', ph:'Championship 2026' }, { key:'date', label:'Date', ph:'20-21 Juni 2026' }, { key:'location', label:'Location', ph:'Kupang, NTT' }, { key:'total_riders', label:'Total Riders', ph:'0' }].map(({ key, label, ph }) => (
+            <div key={key}><label className="text-gray-400 text-xs mb-1 block">{label}</label><input type="text" value={form[key]} placeholder={ph} onChange={e => setForm(p => ({...p, [key]: e.target.value}))} className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" /></div>
           ))}
-          <div className="md:col-span-2">
-            <label className="text-gray-400 text-xs mb-1 block">Description</label>
-            <input type="text" value={form.description} placeholder="Brief description..."
-              onChange={e => setForm(p => ({...p, description: e.target.value}))}
-              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-          </div>
+          <div className="md:col-span-2"><label className="text-gray-400 text-xs mb-1 block">Description</label><input type="text" value={form.description} placeholder="Brief description..." onChange={e => setForm(p => ({...p, description: e.target.value}))} className="w-full bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" /></div>
         </div>
-        <button onClick={handleSave} disabled={saving}
-          className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
-          {saving ? 'Saving...' : '💾 Save Event'}
-        </button>
+        <button onClick={handleSave} disabled={saving} className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">{saving ? 'Saving...' : '💾 Save Event'}</button>
       </div>
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <h3 className="text-yellow-400 font-black mb-4">📖 All Events ({events.length})</h3>
         <div className="space-y-3">
-          {events.map(event => (
-            <div key={event.id} className="bg-gray-700 rounded-xl px-4 py-3 flex justify-between items-center border border-gray-600">
-              <div>
-                <p className="text-white font-bold text-sm">{event.name}</p>
-                <p className="text-gray-400 text-xs">{event.date} · {event.location} · {event.total_riders} riders</p>
-              </div>
-              <button onClick={() => handleDelete(event.id)}
-                className="text-red-400 hover:text-red-300 text-xs border border-red-400 px-2 py-1 rounded-full transition-colors">✕</button>
+          {events.map(e => (
+            <div key={e.id} className="bg-gray-700 rounded-xl px-4 py-3 flex justify-between items-center border border-gray-600">
+              <div><p className="text-white font-bold text-sm">{e.name}</p><p className="text-gray-400 text-xs">{e.date} · {e.location} · {e.total_riders} riders</p></div>
+              <button onClick={() => handleDelete(e.id)} className="text-red-400 text-xs border border-red-400 px-2 py-1 rounded-full">✕</button>
             </div>
           ))}
         </div>
@@ -1006,7 +792,7 @@ function EventsManager() {
   )
 }
 
-// ─── Main Dashboard ────────────────────────────────────────────────────────
+// ─── Main Dashboard ──────────────────────────────────────────────────────────
 function Dashboard() {
   const { adminRole, signOut } = useAuth()
   const navigate = useNavigate()
@@ -1021,10 +807,8 @@ function Dashboard() {
 
   const fetchRegistrations = async () => {
     setLoading(true)
-    const { data } = await supabase.from('registrations').select('*, children(*)')
-      .order('created_at', { ascending: false })
-    setRegistrations(data || [])
-    setLoading(false)
+    const { data } = await supabase.from('registrations').select('*, children(*)').order('created_at', { ascending: false })
+    setRegistrations(data || []); setLoading(false)
   }
 
   const fetchSchedule = async () => {
@@ -1032,17 +816,11 @@ function Dashboard() {
     setSchedule(data || [])
   }
 
-  const updateScheduleStatus = async (id, status) => {
-    await supabase.from('schedule').update({ status }).eq('id', id)
-    fetchSchedule()
-  }
-
   const handleSignOut = async () => { await signOut(); navigate('/admin/login') }
 
   const allChildren = registrations.flatMap(r => r.children || [])
   const allClasses = allChildren.flatMap(c => c.classes || [])
   const classCounts = allClasses.reduce((acc, cls) => { acc[cls] = (acc[cls]||0)+1; return acc }, {})
-
   const filtered = registrations.filter(r =>
     r.parent_name.toLowerCase().includes(search.toLowerCase()) ||
     r.phone.includes(search) ||
@@ -1050,16 +828,15 @@ function Dashboard() {
   )
 
   const tabs = [
-  { id: 'registrations', label: '📋 Registrations' },
-  { id: 'bulkimport',    label: '📥 Bulk Import' },
-  { id: 'schedulemgr',  label: '📅 Schedule Manager' },
-  { id: 'schedule',      label: '🏁 Race Control' },
-  { id: 'heats',         label: '🎲 Heat Draw' },
-  { id: 'results',       label: '🏆 Enter Results' },
-  { id: 'classcounts',   label: '📊 Class Counts' },
-  { id: 'gallery',       label: '📸 Gallery' },
-  { id: 'events',        label: '📖 Events' },
-  ] 
+    { id: 'registrations', label: '📋 Registrations' },
+    { id: 'bulkimport',    label: '📥 Bulk Import' },
+    { id: 'schedulemgr',  label: '📅 Schedule Manager' },
+    { id: 'racecontrol',  label: '🏁 Race Control & Results' },
+    { id: 'heats',        label: '🎲 Heat Draw' },
+    { id: 'classcounts',  label: '📊 Class Counts' },
+    { id: 'gallery',      label: '📸 Gallery' },
+    { id: 'events',       label: '📖 Events' },
+  ]
 
   return (
     <div className="min-h-screen bg-gray-950">
@@ -1067,10 +844,7 @@ function Dashboard() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain" />
-            <div>
-              <h1 className="text-yellow-400 font-black text-sm">ADMIN PANEL</h1>
-              <p className="text-gray-400 text-xs">Pushbike Kupang-NTT</p>
-            </div>
+            <div><h1 className="text-yellow-400 font-black text-sm">ADMIN PANEL</h1><p className="text-gray-400 text-xs">Pushbike Kupang-NTT</p></div>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-gray-300 text-sm hidden md:block">
@@ -1080,13 +854,11 @@ function Dashboard() {
               </span>
             </span>
             {adminRole?.role === 'super_admin' && (
-              <Link to="/admin/manage"
-                className="text-xs font-bold border border-yellow-400 text-yellow-400 px-3 py-1.5 rounded-full hover:bg-yellow-400 hover:text-gray-900 transition-colors">
+              <Link to="/admin/manage" className="text-xs font-bold border border-yellow-400 text-yellow-400 px-3 py-1.5 rounded-full hover:bg-yellow-400 hover:text-gray-900 transition-colors">
                 👥 Manage Admins
               </Link>
             )}
-            <button onClick={handleSignOut}
-              className="text-xs font-bold border border-red-400 text-red-400 px-3 py-1.5 rounded-full hover:bg-red-400 hover:text-white transition-colors">
+            <button onClick={handleSignOut} className="text-xs font-bold border border-red-400 text-red-400 px-3 py-1.5 rounded-full hover:bg-red-400 hover:text-white transition-colors">
               🚪 Logout
             </button>
           </div>
@@ -1094,13 +866,9 @@ function Dashboard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { icon:'👨‍👩‍👧', label:'Families', value: registrations.length },
-            { icon:'🚲', label:'Riders', value: allChildren.length },
-            { icon:'🏷️', label:'Class Entries', value: allClasses.length },
-            { icon:'📊', label:'Classes Active', value: Object.keys(classCounts).length },
-          ].map(({ icon, label, value }) => (
+          {[{ icon:'👨‍👩‍👧', label:'Families', value: registrations.length }, { icon:'🚲', label:'Riders', value: allChildren.length }, { icon:'🏷️', label:'Class Entries', value: allClasses.length }, { icon:'📊', label:'Classes Active', value: Object.keys(classCounts).length }].map(({ icon, label, value }) => (
             <div key={label} className="bg-gray-800 rounded-2xl p-5 border border-gray-700 text-center">
               <div className="text-3xl mb-2">{icon}</div>
               <div className="text-2xl font-black text-yellow-400">{value}</div>
@@ -1109,6 +877,7 @@ function Dashboard() {
           ))}
         </div>
 
+        {/* Tabs */}
         <div className="flex gap-1 mb-8 border-b border-gray-700 overflow-x-auto">
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -1118,68 +887,32 @@ function Dashboard() {
           ))}
         </div>
 
-        {activeTab === 'bulkimport' && <BulkImport />}
-        {activeTab === 'schedulemgr' && <ScheduleManager />}
-        {activeTab === 'heats' && <HeatDrawManager registrations={registrations} />}
-        {activeTab === 'results' && <EnterResults />}
-        {activeTab === 'gallery' && <GalleryManager />}
-        {activeTab === 'events' && <EventsManager />}
+        {activeTab === 'bulkimport'   && <BulkImport />}
+        {activeTab === 'schedulemgr'  && <ScheduleManager />}
+        {activeTab === 'heats'        && <HeatDrawManager registrations={registrations} />}
+        {activeTab === 'racecontrol'  && <RaceControl />}
+        {activeTab === 'gallery'      && <GalleryManager />}
+        {activeTab === 'events'       && <EventsManager />}
 
         {activeTab === 'classcounts' && (
           <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
             <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
               <h2 className="text-yellow-400 font-black">📊 Riders Per Class</h2>
-              <button onClick={() => exportRiderListPDF(registrations)}
-                className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-xl hover:bg-yellow-300 transition-colors text-sm">
-                🖨️ Export All Riders PDF
+              <button onClick={() => exportRiderListPDF(registrations)} className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-xl hover:bg-yellow-300 transition-colors text-sm">
+                🖨️ Export PDF
               </button>
             </div>
-            {Object.keys(classCounts).length === 0 ? (
-              <p className="text-gray-500 text-sm">No registrations yet.</p>
-            ) : (
+            {Object.keys(classCounts).length === 0 ? <p className="text-gray-500 text-sm">No registrations yet.</p> : (
               <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-                {Object.entries(classCounts)
-                  .sort(([a],[b]) => a.localeCompare(b, undefined, { numeric: true }))
-                  .map(([cls, count]) => (
-                    <div key={cls} className="bg-gray-700 rounded-xl p-3 text-center border border-gray-600">
-                      <div className="text-yellow-400 font-black">{cls}</div>
-                      <div className="text-white font-bold text-xl">{count}</div>
-                      <div className="text-gray-400 text-xs">riders</div>
-                    </div>
-                  ))}
+                {Object.entries(classCounts).sort(([a],[b]) => a.localeCompare(b, undefined, { numeric: true })).map(([cls, count]) => (
+                  <div key={cls} className="bg-gray-700 rounded-xl p-3 text-center border border-gray-600">
+                    <div className="text-yellow-400 font-black">{cls}</div>
+                    <div className="text-white font-bold text-xl">{count}</div>
+                    <div className="text-gray-400 text-xs">riders</div>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-        )}
-
-        {activeTab === 'schedule' && (
-          <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-            <h2 className="text-yellow-400 font-black mb-6">🏁 Race Day Control</h2>
-            <div className="space-y-3">
-              {schedule.map(item => (
-                <div key={item.id}
-                  className="bg-gray-700 rounded-xl px-5 py-3 flex justify-between items-center border border-gray-600 flex-wrap gap-3">
-                  <div>
-                    <span className="text-white font-black text-lg mr-3">{item.class_id}</span>
-                    <span className="text-gray-400 text-sm">{item.round} · {item.scheduled_time} WITA</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {['upcoming','racing','done'].map(status => (
-                      <button key={status} onClick={() => updateScheduleStatus(item.id, status)}
-                        className={`text-xs font-bold px-3 py-1.5 rounded-full border transition-colors ${
-                          item.status === status
-                            ? status === 'racing' ? 'bg-green-500 text-white border-green-500'
-                              : status === 'done' ? 'bg-gray-500 text-white border-gray-500'
-                              : 'bg-yellow-400 text-gray-900 border-yellow-400'
-                            : 'border-gray-500 text-gray-400 hover:border-white hover:text-white'
-                        }`}>
-                        {status === 'upcoming' ? '⏳' : status === 'racing' ? '🏁' : '✅'} {status}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -1188,44 +921,27 @@ function Dashboard() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
               <h2 className="text-yellow-400 font-black">📋 All Registrations ({registrations.length})</h2>
               <div className="flex gap-3 w-full md:w-auto">
-                <input type="text" placeholder="🔍 Search name / phone..."
-                  value={search} onChange={e => setSearch(e.target.value)}
-                  className="bg-gray-700 border border-gray-600 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-yellow-400 text-sm w-full md:w-64 transition-colors" />
-                <button onClick={fetchRegistrations}
-                  className="bg-gray-700 border border-gray-600 rounded-xl px-4 py-2 text-gray-300 hover:border-yellow-400 transition-colors text-sm font-bold">
-                  🔄
-                </button>
+                <input type="text" placeholder="🔍 Search name / phone..." value={search} onChange={e => setSearch(e.target.value)}
+                  className="bg-gray-700 border border-gray-600 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-yellow-400 text-sm w-full md:w-64" />
+                <button onClick={fetchRegistrations} className="bg-gray-700 border border-gray-600 rounded-xl px-4 py-2 text-gray-300 hover:border-yellow-400 text-sm font-bold">🔄</button>
               </div>
             </div>
-            {loading ? (
-              <div className="text-center py-12 text-yellow-400 animate-pulse font-bold">Loading...</div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <div className="text-4xl mb-3">📭</div>
-                <p>No registrations yet.</p>
-              </div>
-            ) : (
+            {loading ? <div className="text-center py-12 text-yellow-400 animate-pulse font-bold">Loading...</div> :
+              filtered.length === 0 ? <div className="text-center py-12 text-gray-500"><div className="text-4xl mb-3">📭</div><p>No registrations yet.</p></div> : (
               <div className="space-y-3">
                 {filtered.map((reg, index) => (
                   <div key={reg.id} className="bg-gray-700 rounded-xl border border-gray-600 hover:border-yellow-400 transition-colors">
-                    <button onClick={() => setExpandedId(expandedId === reg.id ? null : reg.id)}
-                      className="w-full text-left px-5 py-4 flex justify-between items-center">
+                    <button onClick={() => setExpandedId(expandedId === reg.id ? null : reg.id)} className="w-full text-left px-5 py-4 flex justify-between items-center">
                       <div className="flex items-center gap-4">
                         <span className="text-gray-500 text-sm font-bold w-6">#{index+1}</span>
                         <div>
                           <p className="text-white font-bold">{reg.parent_name}</p>
-                          <p className="text-gray-400 text-sm">📱 {reg.phone}
-                            {reg.email && <span className="ml-3">📧 {reg.email}</span>}
-                          </p>
+                          <p className="text-gray-400 text-sm">📱 {reg.phone}{reg.email && <span className="ml-3">📧 {reg.email}</span>}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="bg-yellow-400/20 text-yellow-400 text-xs font-bold px-3 py-1 rounded-full">
-                          {reg.children?.length} anak
-                        </span>
-                        <span className="text-gray-400 text-xs">
-                          {new Date(reg.created_at).toLocaleDateString('id-ID')}
-                        </span>
+                        <span className="bg-yellow-400/20 text-yellow-400 text-xs font-bold px-3 py-1 rounded-full">{reg.children?.length} anak</span>
+                        <span className="text-gray-400 text-xs">{new Date(reg.created_at).toLocaleDateString('id-ID')}</span>
                         <span className="text-gray-400">{expandedId === reg.id ? '▲' : '▼'}</span>
                       </div>
                     </button>
@@ -1238,11 +954,7 @@ function Dashboard() {
                               <p className="text-white font-bold">🚲 {child.child_name}</p>
                               <p className="text-gray-400 text-sm mt-1">{child.gender}</p>
                               <div className="flex flex-wrap gap-1 mt-2">
-                                {child.classes?.map(cls => (
-                                  <span key={cls} className="bg-yellow-400 text-gray-900 text-xs font-black px-2 py-0.5 rounded-full">
-                                    {cls}
-                                  </span>
-                                ))}
+                                {child.classes?.map(cls => <span key={cls} className="bg-yellow-400 text-gray-900 text-xs font-black px-2 py-0.5 rounded-full">{cls}</span>)}
                               </div>
                             </div>
                           ))}
