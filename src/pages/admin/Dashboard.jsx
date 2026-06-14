@@ -110,6 +110,77 @@ function BulkImport() {
 }
 
 // ─── Schedule Manager ────────────────────────────────────────────────────────
+function AnnouncementManager() {
+  const [message, setMessage] = useState('')
+  const [active, setActive] = useState(false)
+  const [id, setId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [status, setStatus] = useState('')
+
+  useEffect(() => { load() }, [])
+
+  const load = async () => {
+    const { data } = await supabase.from('announcements').select('*').order('created_at', { ascending: false }).limit(1)
+    if (data?.[0]) {
+      setId(data[0].id)
+      setMessage(data[0].message || '')
+      setActive(data[0].active || false)
+    }
+  }
+
+  const save = async (newActive) => {
+    setSaving(true)
+    const payload = { message, active: newActive }
+    if (id) await supabase.from('announcements').update(payload).eq('id', id)
+    else {
+      const { data } = await supabase.from('announcements').insert(payload).select().single()
+      if (data) setId(data.id)
+    }
+    setActive(newActive)
+    setStatus(newActive ? '✅ Ticker is LIVE on /schedule!' : '✅ Ticker hidden')
+    setSaving(false)
+    setTimeout(() => setStatus(''), 3000)
+  }
+
+  return (
+    <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+      <h3 className="text-yellow-400 font-black mb-2">📢 Schedule Announcement Ticker</h3>
+      <p className="text-gray-400 text-sm mb-6">
+        Type a message and turn it ON to show a scrolling banner at the bottom of the public /schedule page.
+        Useful for live updates, delays, or emergencies.
+      </p>
+
+      {status && (
+        <div className="bg-green-500/20 border border-green-500 text-green-400 rounded-xl p-3 mb-4 text-sm font-bold">
+          {status}
+        </div>
+      )}
+
+      <textarea
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        placeholder="e.g. K5 Heat 2 ditunda 10 menit karena ada kendala di lintasan. / K5 Heat 2 delayed 10 minutes due to track issue."
+        rows={3}
+        className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-400 resize-none mb-4"
+      />
+
+      <div className="flex gap-3 items-center flex-wrap">
+        <button onClick={() => save(true)} disabled={saving || !message.trim()}
+          className="bg-green-500 text-white font-black px-6 py-2 rounded-xl hover:bg-green-600 transition-colors disabled:opacity-50 text-sm">
+          {saving ? '⏳...' : '🔴 Turn ON Ticker'}
+        </button>
+        <button onClick={() => save(false)} disabled={saving}
+          className="border border-gray-500 text-gray-300 font-bold px-6 py-2 rounded-xl hover:border-red-400 hover:text-red-400 transition-colors text-sm">
+          ⬛ Turn OFF Ticker
+        </button>
+        <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${active ? 'border-green-500 text-green-400 bg-green-500/10' : 'border-gray-600 text-gray-500'}`}>
+          {active ? '🔴 Currently LIVE' : '⚫ Currently OFF'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function ScheduleManager() {
   const [heats, setHeats] = useState([])
   const [assignments, setAssignments] = useState({})
@@ -472,11 +543,15 @@ function RaceControl() {
                             <div className="col-span-6 text-white font-bold">{rider.rider_name}</div>
                             <div className="col-span-3">
                               <select value={positions[rider.rider_name] || ''} onChange={e => setPositions(p => ({...p, [rider.rider_name]: e.target.value}))}
-                                className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
-                                <option value="">— Rank —</option>
-                                {riders.map((_, i) => <option key={i+1} value={String(i+1)}>{i===0?'🥇 1st':i===1?'🥈 2nd':i===2?'🥉 3rd':`#${i+1}`}</option>)}
-                              </select>
-                            </div>
+                                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                                  <option value="">— Rank —</option>
+                                  {riders.map((_, i) => {
+                                    const posValue = String(i+1)
+                                    const usedByOther = Object.entries(positions).some(([name, val]) => name !== rider.rider_name && val === posValue)
+                                    if (usedByOther) return null
+                                    return <option key={i+1} value={posValue}>{i===0?'🥇 1st':i===1?'🥈 2nd':i===2?'🥉 3rd':`#${i+1}`}</option>
+                                  })}
+                                </select>                            </div>
                             <div className="col-span-2">
                               <label className="flex items-center gap-1.5 cursor-pointer">
                                 <input type="checkbox" checked={qualified[rider.rider_name] || false}
@@ -831,6 +906,7 @@ function Dashboard() {
     { id: 'registrations', label: '📋 Registrations' },
     { id: 'bulkimport',    label: '📥 Bulk Import' },
     { id: 'schedulemgr',  label: '📅 Schedule Manager' },
+    { id: 'announcements', label: '📢 Announcements' },
     { id: 'racecontrol',  label: '🏁 Race Control & Results' },
     { id: 'heats',        label: '🎲 Heat Draw' },
     { id: 'classcounts',  label: '📊 Class Counts' },
@@ -889,6 +965,7 @@ function Dashboard() {
 
         {activeTab === 'bulkimport'   && <BulkImport />}
         {activeTab === 'schedulemgr'  && <ScheduleManager />}
+        {activeTab === 'announcements' && <AnnouncementManager />}
         {activeTab === 'heats'        && <HeatDrawManager registrations={registrations} />}
         {activeTab === 'racecontrol'  && <RaceControl />}
         {activeTab === 'gallery'      && <GalleryManager />}
