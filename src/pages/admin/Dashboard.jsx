@@ -664,7 +664,7 @@ const saveAll = async () => {
     setSaving(false)
     fetchData()
   }
-  
+
 const clearClass = async () => {
     if (!confirm(`Clear all ${selectedRound} assignments for ${selectedClass}?`)) return
     await supabase.from('heats').delete().eq('class_id', selectedClass).eq('round', selectedRound)
@@ -909,9 +909,61 @@ function EventsManager() {
 }
 
 // ─── Main Dashboard ──────────────────────────────────────────────────────────
+function ChangePasswordModal({ onClose }) {
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const handleChange = async () => {
+    if (newPassword.length < 6) { setMessage('❌ Password must be at least 6 characters'); return }
+    if (newPassword !== confirmPassword) { setMessage('❌ Passwords do not match'); return }
+    setSaving(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) setMessage('❌ ' + error.message)
+    else setMessage('✅ Password changed successfully!')
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <h3 className="text-yellow-400 font-black text-lg mb-4">🔑 Change Password</h3>
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+            {message}
+          </div>
+        )}
+        <div className="space-y-3 mb-4">
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">New Password</label>
+            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Confirm New Password</label>
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={handleChange} disabled={saving}
+            className="flex-1 bg-yellow-400 text-gray-900 font-black py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
+            {saving ? '⏳...' : '💾 Save New Password'}
+          </button>
+          <button onClick={onClose} className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl text-sm">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Dashboard() {
   const { adminRole, signOut } = useAuth()
   const navigate = useNavigate()
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [registrations, setRegistrations] = useState([])
   const [schedule, setSchedule] = useState([])
   const [loading, setLoading] = useState(true)
@@ -975,10 +1027,12 @@ function Dashboard() {
                 👥 Manage Admins
               </Link>
             )}
+            <button onClick={() => setShowChangePassword(true)} className="text-xs font-bold border border-blue-400 text-blue-400 px-3 py-1.5 rounded-full hover:bg-blue-400 hover:text-white transition-colors">
+              🔑 Password
+            </button>
             <button onClick={handleSignOut} className="text-xs font-bold border border-red-400 text-red-400 px-3 py-1.5 rounded-full hover:bg-red-400 hover:text-white transition-colors">
               🚪 Logout
-            </button>
-          </div>
+            </button>          </div>
         </div>
       </nav>
 
@@ -1086,6 +1140,7 @@ function Dashboard() {
           </div>
         )}
       </div>
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
     </div>
   )
 }

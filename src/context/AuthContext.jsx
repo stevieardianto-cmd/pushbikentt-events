@@ -15,12 +15,17 @@ export function AuthProvider({ children }) {
       else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
-      if (session?.user) fetchAdminRole(session.user.id)
-      else { setAdminRole(null); setLoading(false) }
+      if (session?.user) {
+        setLoading(true)
+        fetchAdminRole(session.user.id)
+      } else {
+        setAdminRole(null)
+        setLoading(false)
+      }
     })
-
+    
     return () => subscription.unsubscribe()
   }, [])
 
