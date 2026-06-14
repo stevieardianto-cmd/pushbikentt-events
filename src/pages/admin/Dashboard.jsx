@@ -192,16 +192,17 @@ function ScheduleManager() {
 
   useEffect(() => { fetchData() }, [])
 
-  const fetchData = async () => {
+const fetchData = async () => {
     const [{ data: heatData }, { data: schedData }] = await Promise.all([
-      supabase.from('heats').select('class_id, heat_number').order('class_id').order('heat_number'),
+      supabase.from('heats').select('class_id, round, heat_number').order('class_id').order('round').order('heat_number'),
       supabase.from('schedule').select('*').order('order_number')
     ])
     const uniqueHeats = []
     const seen = new Set()
     ;(heatData || []).forEach(h => {
-      const key = `${h.class_id}_Heat ${h.heat_number}`
-      if (!seen.has(key)) { seen.add(key); uniqueHeats.push({ class_id: h.class_id, round: `Heat ${h.heat_number}` }) }
+      const label = `${h.round} ${h.heat_number}`
+      const key = `${h.class_id}__${label}`
+      if (!seen.has(key)) { seen.add(key); uniqueHeats.push({ class_id: h.class_id, round: label }) }
     })
     setHeats(uniqueHeats)
     const existing = {}
@@ -416,23 +417,23 @@ function RaceControl() {
     fetchSchedule()
   }
 
-  const openResults = async (item) => {
+const openResults = async (item) => {
     setExpandedId(item.id)
     setPositions({})
     setQualified({})
     setMessage('')
 
-    const heatNum = parseInt(item.round.replace('Heat ', ''))
-    if (!isNaN(heatNum)) {
+    const match = item.round.match(/^(Heat|Semi Final|Final) (\d+)$/)
+    if (match) {
       const { data } = await supabase.from('heats').select('*')
-        .eq('class_id', item.class_id).eq('heat_number', heatNum).order('lane')
+        .eq('class_id', item.class_id).eq('round', match[1]).eq('heat_number', parseInt(match[2])).order('lane')
       setRiders(data || [])
     } else {
       const { data } = await supabase.from('results').select('rider_name')
         .eq('class_id', item.class_id).eq('qualified', true)
       setRiders([...new Set((data || []).map(r => r.rider_name))].map(n => ({ rider_name: n })))
     }
-
+    
     const { data: existing } = await supabase.from('results').select('*')
       .eq('class_id', item.class_id).eq('round', item.round)
     if (existing?.length > 0) {
@@ -582,19 +583,33 @@ function RaceControl() {
 // ─── Heat Draw Manager ───────────────────────────────────────────────────────
 function HeatDrawManager({ registrations }) {
   const [selectedClass, setSelectedClass] = useState('K1')
+  const [selectedRound, setSelectedRound] = useState('Heat')
   const [assignments, setAssignments] = useState({})
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [savedHeats, setSavedHeats] = useState([])
   const [heatCount, setHeatCount] = useState(2)
 
-  useEffect(() => { loadClass(selectedClass) }, [selectedClass, registrations])
+  useEffect(() => { loadClass(selectedClass, selectedRound) }, [selectedClass, selectedRound, registrations])
 
   const showMessage = (text) => { setMessage(text); setTimeout(() => setMessage(''), 4000) }
 
-  const loadClass = async (cls) => {
-    const riders = registrations.flatMap(r => (r.children || []).filter(c => c.classes?.includes(cls)).map(c => c.child_name))
-    const { data } = await supabase.from('heats').select('*').eq('class_id', cls).order('heat_number').order('lane')
+const loadClass = async (cls, round) => {
+    let riders = []
+    if (round === 'Heat') {
+      riders = registrations.flatMap(r => (r.children || []).filter(c => c.classes?.includes(cls)).map(c => c.child_name))
+    } else {
+      const sourceRound = round === 'Semi Final' ? 'Heat' : 'Semi Final'
+      const { data: resultData } = await supabase.from('results')
+        .select('rider_name, round, qualified')
+        .eq('class_id', cls).eq('qualified', true)
+      let names = (resultData || []).filter(r => r.round.startsWith(sourceRound)).map(r => r.rider_name)
+      if (names.length === 0 && round === 'Final') {
+        names = (resultData || []).filter(r => r.round.startsWith('Heat')).map(r => r.rider_name)
+      }
+      riders = [...new Set(names)]
+    }
+    const { data } = await supabase.from('heats').select('*').eq('class_id', cls).eq('round', round).order('heat_number').order('lane')
     setSavedHeats(data || [])
     const existing = {}
     riders.forEach(name => {
@@ -625,26 +640,26 @@ function HeatDrawManager({ registrations }) {
 
   const removeRider = (name) => { setAssignments(p => { const u = {...p}; delete u[name]; return u }) }
 
-  const saveAll = async () => {
+const saveAll = async () => {
     const toSave = Object.entries(assignments).filter(([_, v]) => v.heat)
     if (toSave.length === 0) { showMessage('❌ No riders assigned!'); return }
     setSaving(true)
-    await supabase.from('heats').delete().eq('class_id', selectedClass)
+    await supabase.from('heats').delete().eq('class_id', selectedClass).eq('round', selectedRound)
     const heatCounters = {}
     const rows = toSave.sort(([_a, a], [_b, b]) => parseInt(a.heat) - parseInt(b.heat))
-      .map(([name, val]) => { const h = parseInt(val.heat); heatCounters[h] = (heatCounters[h]||0)+1; return { class_id: selectedClass, heat_number: h, rider_name: name, lane: heatCounters[h] } })
+      .map(([name, val]) => { const h = parseInt(val.heat); heatCounters[h] = (heatCounters[h]||0)+1; return { class_id: selectedClass, round: selectedRound, heat_number: h, rider_name: name, lane: heatCounters[h] } })
     const { error } = await supabase.from('heats').insert(rows)
     if (error) showMessage('❌ ' + error.message)
-    else { showMessage(`✅ Saved ${rows.length} riders for ${selectedClass}!`); loadClass(selectedClass) }
+    else { showMessage(`✅ Saved ${rows.length} riders for ${selectedClass} ${selectedRound}!`); loadClass(selectedClass, selectedRound) }
     setSaving(false)
   }
 
-  const clearClass = async () => {
-    if (!confirm(`Clear all heats for ${selectedClass}?`)) return
-    await supabase.from('heats').delete().eq('class_id', selectedClass)
-    showMessage(`✅ Cleared`); loadClass(selectedClass)
+const clearClass = async () => {
+    if (!confirm(`Clear all ${selectedRound} assignments for ${selectedClass}?`)) return
+    await supabase.from('heats').delete().eq('class_id', selectedClass).eq('round', selectedRound)
+    showMessage(`✅ Cleared`); loadClass(selectedClass, selectedRound)
   }
-
+  
   const riders = Object.keys(assignments)
   const assignedCount = riders.filter(r => assignments[r].heat).length
   const heatNums = [...new Set(Object.values(assignments).map(v => v.heat).filter(Boolean))].sort((a,b) => parseInt(a)-parseInt(b))
@@ -663,8 +678,16 @@ function HeatDrawManager({ registrations }) {
             </select>
           </div>
           <div>
-            <label className="text-gray-400 text-xs mb-1 block">Number of Heats</label>
-            <input type="number" min="1" max="10" value={heatCount} onChange={e => setHeatCount(parseInt(e.target.value))}
+            <label className="text-gray-400 text-xs mb-1 block">Round</label>
+            <select value={selectedRound} onChange={e => setSelectedRound(e.target.value)}
+              className="bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
+              <option value="Heat">Heat (Qualifying)</option>
+              <option value="Semi Final">Semi Final</option>
+              <option value="Final">Final</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-gray-400 text-xs mb-1 block">Number of Heats/Groups</label>            <input type="number" min="1" max="10" value={heatCount} onChange={e => setHeatCount(parseInt(e.target.value))}
               className="w-24 bg-gray-700 border border-gray-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
           </div>
           <button onClick={addManualRider} className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
@@ -687,11 +710,19 @@ function HeatDrawManager({ registrations }) {
         {riders.length === 0 ? (
           <div className="text-center py-10 text-gray-500">
             <div className="text-4xl mb-3">👶</div>
-            <p>No riders for {selectedClass}.</p>
-            <p className="text-xs mt-1">Use 📥 Bulk Import or add manually above.</p>
+            {selectedRound === 'Heat' ? (
+              <>
+                <p>No riders for {selectedClass}.</p>
+                <p className="text-xs mt-1">Use 📥 Bulk Import or add manually above.</p>
+              </>
+            ) : (
+              <>
+                <p>No qualified riders found for {selectedRound}.</p>
+                <p className="text-xs mt-1">Enter results for the previous round and mark riders as ✅ Qualified first.</p>
+              </>
+            )}
           </div>
-        ) : (
-          <div className="space-y-2">
+        ) : (          <div className="space-y-2">
             <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
               <div className="col-span-8">Rider Name</div>
               <div className="col-span-3">Heat #</div>
@@ -737,8 +768,7 @@ function HeatDrawManager({ registrations }) {
       </div>
       {heatNums.length > 0 && (
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-          <h3 className="text-yellow-400 font-black mb-4">👁️ Preview — {selectedClass}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <h3 className="text-yellow-400 font-black mb-4">👁️ Preview — {selectedClass} {selectedRound}</h3>          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {heatNums.map(heatNum => {
               const heatRiders = Object.entries(assignments).filter(([_, v]) => v.heat === heatNum)
               return (

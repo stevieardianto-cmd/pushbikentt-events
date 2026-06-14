@@ -38,21 +38,20 @@ function Schedule() {
     setLoading(false)
   }
 
-  const getRidersForEntry = (item) => {
-    const heatMatch = item.round.match(/^Heat (\d+)$/)
-    if (heatMatch) {
+const getRidersForEntry = (item) => {
+    const match = item.round.match(/^(Heat|Semi Final|Final) (\d+)$/)
+    if (match) {
       return heats
-        .filter(h => h.class_id === item.class_id && h.heat_number === parseInt(heatMatch[1]))
+        .filter(h => h.class_id === item.class_id && h.round === match[1] && h.heat_number === parseInt(match[2]))
         .sort((a, b) => a.lane - b.lane)
         .map(h => h.rider_name)
     }
-    // Semi Final / Final — show qualified riders from prior rounds
     const names = results
       .filter(r => r.class_id === item.class_id && r.qualified)
       .map(r => r.rider_name)
     return [...new Set(names)]
   }
-
+  
   const rounds = [...new Set(schedule.map(s => s.round))]
   const filtered = filter === 'all' ? schedule : schedule.filter(s => s.round === filter)
 
