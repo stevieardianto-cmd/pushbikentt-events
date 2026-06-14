@@ -433,7 +433,7 @@ const openResults = async (item) => {
         .eq('class_id', item.class_id).eq('qualified', true)
       setRiders([...new Set((data || []).map(r => r.rider_name))].map(n => ({ rider_name: n })))
     }
-    
+
     const { data: existing } = await supabase.from('results').select('*')
       .eq('class_id', item.class_id).eq('round', item.round)
     if (existing?.length > 0) {
@@ -641,19 +641,30 @@ const loadClass = async (cls, round) => {
   const removeRider = (name) => { setAssignments(p => { const u = {...p}; delete u[name]; return u }) }
 
 const saveAll = async () => {
-    const toSave = Object.entries(assignments).filter(([_, v]) => v.heat)
-    if (toSave.length === 0) { showMessage('❌ No riders assigned!'); return }
     setSaving(true)
-    await supabase.from('heats').delete().eq('class_id', selectedClass).eq('round', selectedRound)
-    const heatCounters = {}
-    const rows = toSave.sort(([_a, a], [_b, b]) => parseInt(a.heat) - parseInt(b.heat))
-      .map(([name, val]) => { const h = parseInt(val.heat); heatCounters[h] = (heatCounters[h]||0)+1; return { class_id: selectedClass, round: selectedRound, heat_number: h, rider_name: name, lane: heatCounters[h] } })
-    const { error } = await supabase.from('heats').insert(rows)
-    if (error) showMessage('❌ ' + error.message)
-    else { showMessage(`✅ Saved ${rows.length} riders for ${selectedClass} ${selectedRound}!`); loadClass(selectedClass, selectedRound) }
+    let saved = 0
+    for (const [key, val] of Object.entries(assignments)) {
+      if (!val.time) continue
+      const [class_id, round] = key.split('__')
+      if (val.id) {
+        // Update existing entry — do NOT touch status (Race Control owns that field)
+        const { error } = await supabase.from('schedule').update({
+          class_id, round, scheduled_time: val.time, order_number: parseInt(val.order) || 999, notes: val.notes || null
+        }).eq('id', val.id)
+        if (!error) saved++
+      } else {
+        // New entry — safe to default status
+        const { data: newEntry, error } = await supabase.from('schedule').insert({
+          class_id, round, scheduled_time: val.time, order_number: parseInt(val.order) || 999, notes: val.notes || null, status: 'upcoming'
+        }).select().single()
+        if (!error) { saved++; setAssignments(p => ({ ...p, [key]: { ...p[key], id: newEntry.id } })) }
+      }
+    }
+    showMsg(`✅ Saved ${saved} entries!`)
     setSaving(false)
+    fetchData()
   }
-
+  
 const clearClass = async () => {
     if (!confirm(`Clear all ${selectedRound} assignments for ${selectedClass}?`)) return
     await supabase.from('heats').delete().eq('class_id', selectedClass).eq('round', selectedRound)
