@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
 function Login() {
@@ -82,6 +82,12 @@ function Login() {
           Akses terbatas untuk admin resmi saja.<br />
           Restricted access for authorized admins only.
         </p>
+
+        <div className="text-center mt-4">
+          <Link to="/" className="text-gray-400 text-sm font-bold hover:text-white transition-colors">
+            ← Back to Home
+          </Link>
+        </div>
       </div>
     </div>
   )

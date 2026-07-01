@@ -187,7 +187,7 @@ function ScheduleManager() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [showManual, setShowManual] = useState(false)
-  const [manualEntry, setManualEntry] = useState({ class_id:'K1', round:'Semi Final', scheduled_time:'13:00', notes:'', order_number:'' })
+  const [manualEntry, setManualEntry] = useState({ class_id:'K1', round:'Semi Final', notes:'', order_number:'' })
   const ROUNDS = ['Heat 1','Heat 2','Heat 3','Semi Final','Final']
 
   useEffect(() => { fetchData() }, [])
@@ -209,13 +209,13 @@ const fetchData = async () => {
     uniqueHeats.forEach(h => {
       const key = `${h.class_id}__${h.round}`
       const saved = schedData?.find(s => s.class_id === h.class_id && s.round === h.round)
-      existing[key] = { time: saved?.scheduled_time || '', order: saved?.order_number ? String(saved.order_number) : '', notes: saved?.notes || '', id: saved?.id || null }
+      existing[key] = { order: saved?.order_number ? String(saved.order_number) : '', notes: saved?.notes || '', id: saved?.id || null }
     })
     schedData?.forEach(s => {
       const isHeat = uniqueHeats.some(h => h.class_id === s.class_id && h.round === s.round)
       if (!isHeat) {
         const key = `${s.class_id}__${s.round}`
-        existing[key] = { time: s.scheduled_time, order: String(s.order_number), notes: s.notes || '', id: s.id }
+        existing[key] = { order: String(s.order_number), notes: s.notes || '', id: s.id }
       }
     })
     setAssignments(existing)
@@ -228,9 +228,8 @@ const fetchData = async () => {
     setSaving(true)
     let saved = 0
     for (const [key, val] of Object.entries(assignments)) {
-      if (!val.time) continue
       const [class_id, round] = key.split('__')
-      const data = { class_id, round, scheduled_time: val.time, order_number: parseInt(val.order) || 999, notes: val.notes || null, status: 'upcoming' }
+      const data = { class_id, round, scheduled_time: null, order_number: parseInt(val.order) || 999, notes: val.notes || null, status: 'upcoming' }
       if (val.id) { await supabase.from('schedule').update(data).eq('id', val.id); saved++ }
       else {
         const { data: newEntry, error } = await supabase.from('schedule').insert(data).select().single()
@@ -250,12 +249,11 @@ const fetchData = async () => {
   }
 
   const addManual = async () => {
-    if (!manualEntry.scheduled_time) { showMsg('❌ Time required!'); return }
     setSaving(true)
     const maxOrder = Math.max(...Object.values(assignments).map(a => parseInt(a.order) || 0), 0)
     const { error } = await supabase.from('schedule').insert({
       class_id: manualEntry.class_id, round: manualEntry.round,
-      scheduled_time: manualEntry.scheduled_time, order_number: parseInt(manualEntry.order_number) || maxOrder + 1,
+      scheduled_time: null, order_number: parseInt(manualEntry.order_number) || maxOrder + 1,
       notes: manualEntry.notes || null, status: 'upcoming'
     })
     if (error) showMsg('❌ ' + error.message)
@@ -266,7 +264,6 @@ const fetchData = async () => {
   const allKeys = [...new Set([...heats.map(h => `${h.class_id}__${h.round}`), ...Object.keys(assignments)])]
   const sorted = allKeys.map(key => { const [c, r] = key.split('__'); return { key, class_id: c, round: r, ...(assignments[key] || {}) } })
     .sort((a, b) => (parseInt(a.order) || 999) - (parseInt(b.order) || 999))
-  const assignedCount = Object.values(assignments).filter(a => a.time).length
 
   return (
     <div className="space-y-6">
@@ -274,7 +271,7 @@ const fetchData = async () => {
         <div className="flex justify-between items-start mb-6 flex-wrap gap-3">
           <div>
             <h3 className="text-yellow-400 font-black text-lg">📅 Schedule Manager</h3>
-            <p className="text-gray-400 text-xs mt-1">Heats auto-load from Heat Draw. Set time & order, then save.</p>
+            <p className="text-gray-400 text-xs mt-1">Heats auto-load from Heat Draw. Set order & notes, then save.</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button onClick={() => setShowManual(!showManual)}
@@ -283,23 +280,21 @@ const fetchData = async () => {
             </button>
             <button onClick={saveAll} disabled={saving}
               className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
-              {saving ? '⏳ Saving...' : '💾 Save All Times'}
+              {saving ? '⏳ Saving...' : '💾 Save All'}
             </button>
           </div>
         </div>
         {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
         <div className="flex gap-3 mb-6">
-          {[{ label:'Total Slots', v: allKeys.length }, { label:'Times Set', v: assignedCount }, { label:'Pending', v: allKeys.length - assignedCount }].map(({ label, v }) => (
-            <div key={label} className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-              <div className="text-yellow-400 font-black">{v}</div>
-              <div className="text-gray-400 text-xs">{label}</div>
-            </div>
-          ))}
+          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+            <div className="text-yellow-400 font-black">{allKeys.length}</div>
+            <div className="text-gray-400 text-xs">Total Slots</div>
+          </div>
         </div>
         {showManual && (
           <div className="bg-gray-700 rounded-xl p-5 mb-6 border border-yellow-400/50">
             <h4 className="text-yellow-400 font-black mb-4 text-sm">➕ Add Semi Final / Final</h4>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
               <div>
                 <label className="text-gray-400 text-xs mb-1 block">Class</label>
                 <select value={manualEntry.class_id} onChange={e => setManualEntry(p => ({...p, class_id: e.target.value}))}
@@ -313,11 +308,6 @@ const fetchData = async () => {
                   className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400">
                   {ROUNDS.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Time</label>
-                <input type="time" value={manualEntry.scheduled_time} onChange={e => setManualEntry(p => ({...p, scheduled_time: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
               </div>
               <div>
                 <label className="text-gray-400 text-xs mb-1 block">Order #</label>
@@ -344,20 +334,19 @@ const fetchData = async () => {
         {sorted.length > 0 && (
           <div className="space-y-2">
             <div className="grid grid-cols-12 gap-2 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
-              <div className="col-span-2">Class</div>
-              <div className="col-span-2">Round</div>
+              <div className="col-span-3">Class</div>
+              <div className="col-span-3">Round</div>
               <div className="col-span-2">Order #</div>
-              <div className="col-span-3">Time (WITA)</div>
-              <div className="col-span-2">Notes</div>
+              <div className="col-span-3">Notes</div>
               <div className="col-span-1"></div>
             </div>
-            {sorted.map(({ key, class_id, round, time, order, notes }) => (
-              <div key={key} className={`grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-2 border transition-colors ${time ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-yellow-400/20'}`}>
-                <div className="col-span-2">
+            {sorted.map(({ key, class_id, round, order, notes }) => (
+              <div key={key} className="grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-2 border bg-gray-700 border-gray-600 transition-colors">
+                <div className="col-span-3">
                   <span className="text-white font-black text-sm">{class_id}</span>
                   <p className="text-gray-500 text-xs">{CLASS_INFO[class_id]}</p>
                 </div>
-                <div className="col-span-2">
+                <div className="col-span-3">
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${round === 'Final' ? 'bg-yellow-400 text-gray-900' : round === 'Semi Final' ? 'bg-orange-500 text-white' : 'bg-gray-600 text-gray-300'}`}>
                     {round}
                   </span>
@@ -367,10 +356,6 @@ const fetchData = async () => {
                     className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400" />
                 </div>
                 <div className="col-span-3">
-                  <input type="time" value={time} onChange={e => update(key, 'time', e.target.value)}
-                    className={`w-full bg-gray-600 border rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400 ${time ? 'border-gray-500' : 'border-yellow-400/50'}`} />
-                </div>
-                <div className="col-span-2">
                   <input type="text" value={notes} onChange={e => update(key, 'notes', e.target.value)} placeholder="Notes"
                     className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-400" />
                 </div>
@@ -382,7 +367,7 @@ const fetchData = async () => {
             <div className="pt-4">
               <button onClick={saveAll} disabled={saving}
                 className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
-                {saving ? '⏳ Saving...' : `💾 Save All Schedule Times (${assignedCount} set)`}
+                {saving ? '⏳ Saving...' : '💾 Save All Schedule'}
               </button>
             </div>
           </div>
@@ -1016,6 +1001,9 @@ function Dashboard() {
             <div><h1 className="text-yellow-400 font-black text-sm">ADMIN PANEL</h1><p className="text-gray-400 text-xs">Pushbike Kupang-NTT</p></div>
           </div>
           <div className="flex items-center gap-3">
+            <Link to="/" className="text-xs font-bold border border-gray-500 text-gray-300 px-3 py-1.5 rounded-full hover:border-white hover:text-white transition-colors">
+              🏠 Home
+            </Link>
             <span className="text-gray-300 text-sm hidden md:block">
               👤 {adminRole?.name}
               <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-bold ${adminRole?.role === 'super_admin' ? 'bg-yellow-400 text-gray-900' : 'bg-gray-700 text-gray-300'}`}>
