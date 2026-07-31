@@ -69,7 +69,7 @@ function Home() {
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 text-center hover:border-yellow-400 transition-colors">
           <div className="text-4xl mb-4">📅</div>
           <h4 className="text-yellow-400 font-bold mb-2">Tanggal / Date</h4>
-          <p className="text-white font-semibold">20-21 Juni 2026</p>
+          <p className="text-white font-semibold">22-23 Agustus 2026</p>
           <p className="text-gray-400 text-sm">15:00 - 21:00 WITA</p>
         </div>
         <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700 text-center hover:border-yellow-400 transition-colors">

@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
 const CLASS_INFO = {
-  K1:'Siput',K2:'Open',K3:'Open',K4:'Open',K5:'Open',
-  K6:'Girls Only',K7:'Rockie',K8:'¾ Wheel',K9:'Rockie',
-  K10:'Rockie',K11:'Rockie',K12:'Mix',K13:'Mix',
-  K14:'Girls Only',K15:'Girls Only',K16:'Girls Only',
-  K17:'Open',K18:'Open',K19:'Girls Only',K20:'FFA'
+  K1:'Siput', K2:'Pro', K3:'¾ Wheel', K4:'Campuran',
+  K5:'Pro', K6:'Pemula', K7:'Pro', K8:'Boys/Girls',
+  K9:'Pro', K10:'Rockie', K11:'Girls', K12:'Girls',
+  K13:'Girls', K14:'Campuran', K15:'Rockie', K16:'Girls',
+  K17:'Pro', K18:'Pro', K19:'FFA'
 }
 
 function Schedule() {
