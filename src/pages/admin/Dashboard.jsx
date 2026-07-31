@@ -183,20 +183,21 @@ function AnnouncementManager() {
 
 function ScheduleManager() {
   const [heats, setHeats] = useState([])
-  const [assignments, setAssignments] = useState({})
+  const [entries, setEntries] = useState([])
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [showManual, setShowManual] = useState(false)
-  const [manualEntry, setManualEntry] = useState({ class_id:'K1', round:'Semi Final', notes:'', order_number:'' })
-  const ROUNDS = ['Heat 1','Heat 2','Heat 3','Semi Final','Final']
+  const [manualEntry, setManualEntry] = useState({ class_id:'K1', round:'Semi Final', notes:'' })
+  const ROUNDS = ['Heat 1','Heat 2','Heat 3','Semi Final 1','Semi Final 2','Final']
 
   useEffect(() => { fetchData() }, [])
 
-const fetchData = async () => {
+  const fetchData = async () => {
     const [{ data: heatData }, { data: schedData }] = await Promise.all([
       supabase.from('heats').select('class_id, round, heat_number').order('class_id').order('round').order('heat_number'),
       supabase.from('schedule').select('*').order('order_number')
     ])
+
     const uniqueHeats = []
     const seen = new Set()
     ;(heatData || []).forEach(h => {
@@ -205,96 +206,122 @@ const fetchData = async () => {
       if (!seen.has(key)) { seen.add(key); uniqueHeats.push({ class_id: h.class_id, round: label }) }
     })
     setHeats(uniqueHeats)
-    const existing = {}
-    uniqueHeats.forEach(h => {
-      const key = `${h.class_id}__${h.round}`
-      const saved = schedData?.find(s => s.class_id === h.class_id && s.round === h.round)
-      existing[key] = { order: saved?.order_number ? String(saved.order_number) : '', notes: saved?.notes || '', id: saved?.id || null }
-    })
-    schedData?.forEach(s => {
-      const isHeat = uniqueHeats.some(h => h.class_id === s.class_id && h.round === s.round)
-      if (!isHeat) {
-        const key = `${s.class_id}__${s.round}`
-        existing[key] = { order: String(s.order_number), notes: s.notes || '', id: s.id }
-      }
-    })
-    setAssignments(existing)
+
+    // Merge heat draw entries + existing schedule entries
+    const existing = schedData || []
+    const existingKeys = new Set(existing.map(s => `${s.class_id}__${s.round}`))
+
+    // Add heat draw entries not yet in schedule
+    const toAdd = uniqueHeats.filter(h => !existingKeys.has(`${h.class_id}__${h.round}`))
+
+    if (toAdd.length > 0) {
+      const maxOrder = existing.length > 0 ? Math.max(...existing.map(s => s.order_number)) : 0
+      const newRows = toAdd.map((h, i) => ({
+        class_id: h.class_id, round: h.round,
+        scheduled_time: '', order_number: maxOrder + i + 1,
+        notes: '', status: 'upcoming'
+      }))
+      const { data: inserted } = await supabase.from('schedule').insert(newRows).select()
+      setEntries([...existing, ...(inserted || [])])
+    } else {
+      setEntries(existing)
+    }
   }
 
   const showMsg = (text) => { setMessage(text); setTimeout(() => setMessage(''), 3000) }
-  const update = (key, field, value) => setAssignments(p => ({ ...p, [key]: { ...p[key], [field]: value } }))
 
-  const saveAll = async () => {
-    setSaving(true)
-    let saved = 0
-    for (const [key, val] of Object.entries(assignments)) {
-      const [class_id, round] = key.split('__')
-      const data = { class_id, round, scheduled_time: null, order_number: parseInt(val.order) || 999, notes: val.notes || null, status: 'upcoming' }
-      if (val.id) { await supabase.from('schedule').update(data).eq('id', val.id); saved++ }
-      else {
-        const { data: newEntry, error } = await supabase.from('schedule').insert(data).select().single()
-        if (!error) { saved++; setAssignments(p => ({ ...p, [key]: { ...p[key], id: newEntry.id } })) }
-      }
-    }
-    showMsg(`✅ Saved ${saved} entries!`)
-    setSaving(false)
-    fetchData()
+  const moveUp = async (index) => {
+    if (index === 0) return
+    const updated = [...entries]
+    const temp = updated[index - 1]
+    updated[index - 1] = updated[index]
+    updated[index] = temp
+    const reordered = updated.map((e, i) => ({ ...e, order_number: i + 1 }))
+    setEntries(reordered)
+    await Promise.all(reordered.map(e => supabase.from('schedule').update({ order_number: e.order_number }).eq('id', e.id)))
   }
 
-  const deleteEntry = async (key) => {
-    const entry = assignments[key]
-    if (entry?.id) { if (!confirm('Remove from schedule?')) return; await supabase.from('schedule').delete().eq('id', entry.id) }
-    setAssignments(p => { const u = {...p}; delete u[key]; return u })
-    showMsg('✅ Removed!'); fetchData()
+  const moveDown = async (index) => {
+    if (index === entries.length - 1) return
+    const updated = [...entries]
+    const temp = updated[index + 1]
+    updated[index + 1] = updated[index]
+    updated[index] = temp
+    const reordered = updated.map((e, i) => ({ ...e, order_number: i + 1 }))
+    setEntries(reordered)
+    await Promise.all(reordered.map(e => supabase.from('schedule').update({ order_number: e.order_number }).eq('id', e.id)))
+  }
+
+  const updateNotes = (index, value) => {
+    setEntries(prev => prev.map((e, i) => i === index ? { ...e, notes: value } : e))
+  }
+
+  const saveNotes = async (entry) => {
+    await supabase.from('schedule').update({ notes: entry.notes }).eq('id', entry.id)
+    showMsg('✅ Notes saved!')
+  }
+
+  const deleteEntry = async (entry) => {
+    if (!confirm('Remove from schedule?')) return
+    await supabase.from('schedule').delete().eq('id', entry.id)
+    showMsg('✅ Removed!')
+    fetchData()
   }
 
   const addManual = async () => {
     setSaving(true)
-    const maxOrder = Math.max(...Object.values(assignments).map(a => parseInt(a.order) || 0), 0)
+    const maxOrder = entries.length > 0 ? Math.max(...entries.map(e => e.order_number)) : 0
     const { error } = await supabase.from('schedule').insert({
       class_id: manualEntry.class_id, round: manualEntry.round,
-      scheduled_time: null, order_number: parseInt(manualEntry.order_number) || maxOrder + 1,
-      notes: manualEntry.notes || null, status: 'upcoming'
+      scheduled_time: '', order_number: maxOrder + 1,
+      notes: manualEntry.notes || '', status: 'upcoming'
     })
     if (error) showMsg('❌ ' + error.message)
     else { showMsg('✅ Added!'); setShowManual(false); fetchData() }
     setSaving(false)
   }
 
-  const allKeys = [...new Set([...heats.map(h => `${h.class_id}__${h.round}`), ...Object.keys(assignments)])]
-  const sorted = allKeys.map(key => { const [c, r] = key.split('__'); return { key, class_id: c, round: r, ...(assignments[key] || {}) } })
-    .sort((a, b) => (parseInt(a.order) || 999) - (parseInt(b.order) || 999))
-
   return (
     <div className="space-y-6">
       <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
         <div className="flex justify-between items-start mb-6 flex-wrap gap-3">
           <div>
-            <h3 className="text-yellow-400 font-black text-lg">📅 Schedule Manager</h3>
-            <p className="text-gray-400 text-xs mt-1">Heats auto-load from Heat Draw. Set order & notes, then save.</p>
+            <h3 className="text-yellow-400 font-black text-lg">📋 Schedule Manager</h3>
+            <p className="text-gray-400 text-xs mt-1">
+              Heats auto-load from Heat Draw. Use ↑↓ arrows to set race order.
+            </p>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={() => setShowManual(!showManual)}
-              className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
-              {showManual ? '✕ Cancel' : '➕ Add Semi/Final'}
-            </button>
-            <button onClick={saveAll} disabled={saving}
-              className="bg-yellow-400 text-gray-900 font-black px-6 py-2 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50 text-sm">
-              {saving ? '⏳ Saving...' : '💾 Save All'}
-            </button>
-          </div>
+          <button onClick={() => setShowManual(!showManual)}
+            className="border border-gray-500 text-gray-300 font-bold px-4 py-2 rounded-xl hover:border-yellow-400 hover:text-yellow-400 transition-colors text-sm">
+            {showManual ? '✕ Cancel' : '➕ Add Semi/Final'}
+          </button>
         </div>
-        {message && <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{message}</div>}
-        <div className="flex gap-3 mb-6">
-          <div className="bg-gray-700 rounded-xl px-4 py-2 text-center">
-            <div className="text-yellow-400 font-black">{allKeys.length}</div>
-            <div className="text-gray-400 text-xs">Total Slots</div>
+
+        {message && (
+          <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+            {message}
           </div>
+        )}
+
+        {/* Stats */}
+        <div className="flex gap-3 mb-6 flex-wrap">
+          {[
+            { label:'Total Races', v: entries.length },
+            { label:'Done', v: entries.filter(e => e.status === 'done').length },
+            { label:'Remaining', v: entries.filter(e => e.status !== 'done').length },
+          ].map(({ label, v }) => (
+            <div key={label} className="bg-gray-700 rounded-xl px-4 py-2 text-center">
+              <div className="text-yellow-400 font-black">{v}</div>
+              <div className="text-gray-400 text-xs">{label}</div>
+            </div>
+          ))}
         </div>
+
+        {/* Add Manual Entry */}
         {showManual && (
           <div className="bg-gray-700 rounded-xl p-5 mb-6 border border-yellow-400/50">
             <h4 className="text-yellow-400 font-black mb-4 text-sm">➕ Add Semi Final / Final</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
               <div>
                 <label className="text-gray-400 text-xs mb-1 block">Class</label>
                 <select value={manualEntry.class_id} onChange={e => setManualEntry(p => ({...p, class_id: e.target.value}))}
@@ -310,66 +337,89 @@ const fetchData = async () => {
                 </select>
               </div>
               <div>
-                <label className="text-gray-400 text-xs mb-1 block">Order #</label>
-                <input type="number" value={manualEntry.order_number} placeholder="Auto" onChange={e => setManualEntry(p => ({...p, order_number: e.target.value}))}
-                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
-              </div>
-              <div>
-                <label className="text-gray-400 text-xs mb-1 block">Notes</label>
-                <input type="text" value={manualEntry.notes} placeholder="Optional" onChange={e => setManualEntry(p => ({...p, notes: e.target.value}))}
+                <label className="text-gray-400 text-xs mb-1 block">Notes (optional)</label>
+                <input type="text" value={manualEntry.notes} placeholder="e.g. After lunch"
+                  onChange={e => setManualEntry(p => ({...p, notes: e.target.value}))}
                   className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-2 text-white text-sm focus:outline-none focus:border-yellow-400" />
               </div>
             </div>
-            <button onClick={addManual} disabled={saving} className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-lg text-sm hover:bg-yellow-300 transition-colors disabled:opacity-50">
-              ✅ Add Entry
+            <button onClick={addManual} disabled={saving}
+              className="bg-yellow-400 text-gray-900 font-black px-5 py-2 rounded-lg text-sm hover:bg-yellow-300 disabled:opacity-50">
+              ✅ Add to Schedule
             </button>
           </div>
         )}
-        {heats.length === 0 && (
-          <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4 mb-6 text-center">
+
+        {heats.length === 0 && entries.length === 0 ? (
+          <div className="bg-yellow-400/10 border border-yellow-400 rounded-xl p-4 text-center">
             <p className="text-yellow-400 font-bold text-sm">⚠️ No heats assigned yet!</p>
-            <p className="text-gray-400 text-xs mt-1">Go to 🎲 Heat Draw tab first → assign riders → Save.</p>
+            <p className="text-gray-400 text-xs mt-1">Go to 🎲 Heat Draw first → assign riders → Save.</p>
           </div>
-        )}
-        {sorted.length > 0 && (
+        ) : (
           <div className="space-y-2">
+            {/* Header */}
             <div className="grid grid-cols-12 gap-2 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
-              <div className="col-span-3">Class</div>
+              <div className="col-span-1">Order</div>
+              <div className="col-span-2">Class</div>
               <div className="col-span-3">Round</div>
-              <div className="col-span-2">Order #</div>
-              <div className="col-span-3">Notes</div>
-              <div className="col-span-1"></div>
+              <div className="col-span-2">Status</div>
+              <div className="col-span-2">Notes</div>
+              <div className="col-span-2">Actions</div>
             </div>
-            {sorted.map(({ key, class_id, round, order, notes }) => (
-              <div key={key} className="grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-2 border bg-gray-700 border-gray-600 transition-colors">
-                <div className="col-span-3">
-                  <span className="text-white font-black text-sm">{class_id}</span>
-                  <p className="text-gray-500 text-xs">{CLASS_INFO[class_id]}</p>
+
+            {entries.map((entry, index) => (
+              <div key={entry.id}
+                className={`grid grid-cols-12 gap-2 items-center rounded-xl px-3 py-3 border transition-colors ${
+                  entry.status === 'done' ? 'bg-gray-700/40 border-gray-700 opacity-60' :
+                  entry.status === 'racing' ? 'bg-green-500/10 border-green-500' :
+                  'bg-gray-700 border-gray-600'
+                }`}>
+                <div className="col-span-1 text-gray-500 font-black text-sm">{index + 1}</div>
+                <div className="col-span-2">
+                  <span className="text-white font-black">{entry.class_id}</span>
+                  <p className="text-gray-500 text-xs">{CLASS_INFO[entry.class_id]}</p>
                 </div>
                 <div className="col-span-3">
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${round === 'Final' ? 'bg-yellow-400 text-gray-900' : round === 'Semi Final' ? 'bg-orange-500 text-white' : 'bg-gray-600 text-gray-300'}`}>
-                    {round}
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                    entry.round.includes('Final') && !entry.round.includes('Semi') ? 'bg-yellow-400 text-gray-900' :
+                    entry.round.includes('Semi') ? 'bg-orange-500 text-white' :
+                    'bg-gray-600 text-gray-300'
+                  }`}>
+                    {entry.round}
                   </span>
                 </div>
                 <div className="col-span-2">
-                  <input type="number" min="1" value={order} onChange={e => update(key, 'order', e.target.value)} placeholder="#"
-                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400" />
+                  <span className={`text-xs font-bold ${
+                    entry.status === 'done' ? 'text-gray-500' :
+                    entry.status === 'racing' ? 'text-green-400' :
+                    'text-gray-400'
+                  }`}>
+                    {entry.status === 'done' ? '✅ Done' : entry.status === 'racing' ? '🏁 Racing' : '⏳ Upcoming'}
+                  </span>
                 </div>
-                <div className="col-span-3">
-                  <input type="text" value={notes} onChange={e => update(key, 'notes', e.target.value)} placeholder="Notes"
-                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-400" />
+                <div className="col-span-2">
+                  <input type="text" value={entry.notes || ''}
+                    onChange={e => updateNotes(index, e.target.value)}
+                    onBlur={() => saveNotes(entry)}
+                    placeholder="Notes"
+                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1 text-white text-xs focus:outline-none focus:border-yellow-400" />
                 </div>
-                <div className="col-span-1 flex justify-center">
-                  <button onClick={() => deleteEntry(key)} className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                <div className="col-span-2 flex gap-1 items-center">
+                  <button onClick={() => moveUp(index)} disabled={index === 0}
+                    className="w-7 h-7 bg-gray-600 hover:bg-yellow-400 hover:text-gray-900 text-gray-300 rounded-lg flex items-center justify-center font-black text-xs disabled:opacity-30 transition-colors">
+                    ↑
+                  </button>
+                  <button onClick={() => moveDown(index)} disabled={index === entries.length - 1}
+                    className="w-7 h-7 bg-gray-600 hover:bg-yellow-400 hover:text-gray-900 text-gray-300 rounded-lg flex items-center justify-center font-black text-xs disabled:opacity-30 transition-colors">
+                    ↓
+                  </button>
+                  <button onClick={() => deleteEntry(entry)}
+                    className="w-7 h-7 bg-gray-600 hover:bg-red-500 text-gray-300 hover:text-white rounded-lg flex items-center justify-center text-xs transition-colors">
+                    ✕
+                  </button>
                 </div>
               </div>
             ))}
-            <div className="pt-4">
-              <button onClick={saveAll} disabled={saving}
-                className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
-                {saving ? '⏳ Saving...' : '💾 Save All Schedule'}
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -473,7 +523,7 @@ const openResults = async (item) => {
               <div className="bg-gray-700 px-5 py-3 flex justify-between items-center flex-wrap gap-3">
                 <div>
                   <span className="text-white font-black text-lg mr-3">{item.class_id}</span>
-                  <span className="text-gray-400 text-sm">{CLASS_INFO[item.class_id]} · {item.round} · {item.scheduled_time} WITA</span>
+                  <span className="text-gray-400 text-sm">{CLASS_INFO[item.class_id]} · {item.round}</span>
                 </div>
                 <div className="flex gap-2 items-center">
                   <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${statusBadge[item.status]}`}>

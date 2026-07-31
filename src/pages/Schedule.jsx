@@ -38,7 +38,7 @@ function Schedule() {
     setLoading(false)
   }
 
-const getRidersForEntry = (item) => {
+  const getRidersForEntry = (item) => {
     const match = item.round.match(/^(Heat|Semi Final|Final) (\d+)$/)
     if (match) {
       return heats
@@ -51,104 +51,116 @@ const getRidersForEntry = (item) => {
       .map(r => r.rider_name)
     return [...new Set(names)]
   }
-  
-  const rounds = [...new Set(schedule.map(s => s.round))]
-  const filtered = filter === 'all' ? schedule : schedule.filter(s => s.round === filter)
 
   const statusStyle = {
-    upcoming: 'bg-gray-700 text-gray-300 border-gray-600',
-    racing:   'bg-green-500/20 text-green-400 border-green-500 animate-pulse',
-    done:     'bg-gray-800 text-gray-500 border-gray-700 opacity-60',
+    upcoming: 'bg-gray-700 border-gray-600',
+    racing:   'bg-green-500/20 border-green-500 animate-pulse',
+    done:     'bg-gray-800 border-gray-700 opacity-60',
   }
-  const statusLabel = {
-    upcoming: '⏳ Upcoming',
-    racing:   '🏁 RACING NOW',
-    done:     '✅ Done',
-  }
+
+  const filters = ['all', 'upcoming', 'racing', 'done']
+  const filtered = filter === 'all' ? schedule : schedule.filter(s => s.status === filter)
+  const racingNow = schedule.filter(s => s.status === 'racing')
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12 pb-24">
+    <div className="max-w-3xl mx-auto px-6 py-12 pb-24">
 
+      {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-4xl font-black mb-3">
           JADWAL <span className="text-yellow-400">/ SCHEDULE</span>
         </h1>
-        <p className="text-gray-400">Race Day Schedule · Klik untuk lihat daftar pembalap</p>
+        <p className="text-gray-400">Race Order · Klik untuk lihat daftar pembalap</p>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-3 mb-8">
-        {[
-          { status: 'upcoming', label: '⏳ Upcoming' },
-          { status: 'racing', label: '🏁 Racing Now' },
-          { status: 'done', label: '✅ Selesai / Done' },
-        ].map(({ status, label }) => (
-          <div key={status} className={`px-4 py-2 rounded-full text-xs font-bold border ${statusStyle[status]}`}>
-            {label}
-          </div>
-        ))}
-      </div>
-
-      {rounds.length > 1 && (
-        <div className="flex flex-wrap gap-2 mb-8 justify-center">
-          <button onClick={() => setFilter('all')}
-            className={`px-4 py-2 rounded-full text-sm font-bold border-2 transition-colors ${filter === 'all' ? 'bg-yellow-400 text-gray-900 border-yellow-400' : 'border-gray-600 text-gray-400 hover:border-yellow-400'}`}>
-            All Rounds
-          </button>
-          {rounds.map(round => (
-            <button key={round} onClick={() => setFilter(round)}
-              className={`px-4 py-2 rounded-full text-sm font-bold border-2 transition-colors ${filter === round ? 'bg-yellow-400 text-gray-900 border-yellow-400' : 'border-gray-600 text-gray-400 hover:border-yellow-400'}`}>
-              {round}
-            </button>
+      {/* Racing Now Banner */}
+      {racingNow.length > 0 && (
+        <div className="bg-green-500/20 border-2 border-green-500 rounded-2xl p-4 mb-6 text-center">
+          <p className="text-green-400 font-black text-lg animate-pulse">🏁 SEDANG BERLOMBA / RACING NOW</p>
+          {racingNow.map(r => (
+            <p key={r.id} className="text-white font-bold text-xl mt-1">
+              {r.class_id} — {CLASS_INFO[r.class_id]} · {r.round}
+            </p>
           ))}
         </div>
       )}
 
+      {/* Filter Tabs */}
+      <div className="flex gap-2 mb-6 flex-wrap justify-center">
+        {filters.map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-4 py-2 rounded-full text-xs font-bold border-2 transition-colors capitalize ${
+              filter === f ? 'bg-yellow-400 text-gray-900 border-yellow-400' : 'border-gray-600 text-gray-400 hover:border-yellow-400'
+            }`}>
+            {f === 'all' ? '📋 All' : f === 'upcoming' ? '⏳ Upcoming' : f === 'racing' ? '🏁 Racing' : '✅ Done'}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
-        <div className="text-center py-20 text-yellow-400 animate-pulse font-bold text-lg">Loading schedule...</div>
+        <div className="text-center py-20 text-yellow-400 animate-pulse font-bold">Loading...</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-20">
           <div className="text-6xl mb-4">📅</div>
           <p className="text-gray-400">Belum ada jadwal. / Schedule not available yet.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map(item => {
+        <div className="space-y-2">
+          {filtered.map((item, index) => {
             const riders = getRidersForEntry(item)
             const isExpanded = expandedId === item.id
+            const globalIndex = schedule.findIndex(s => s.id === item.id)
+
             return (
               <div key={item.id}
-                className={`rounded-2xl border-2 transition-all overflow-hidden ${statusStyle[item.status]}`}>
+                className={`rounded-2xl border-2 overflow-hidden transition-all ${statusStyle[item.status]}`}>
                 <button
                   onClick={() => setExpandedId(isExpanded ? null : item.id)}
-                  className="w-full px-6 py-4 flex items-center gap-4 text-left">
-                  <div className="text-center min-w-16">
-                    <p className="text-yellow-400 font-black text-lg">{item.scheduled_time}</p>
-                    <p className="text-gray-500 text-xs">WITA</p>
+                  className="w-full px-5 py-4 flex items-center gap-4 text-left">
+
+                  {/* Order Number */}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${
+                    item.status === 'done' ? 'bg-gray-600 text-gray-400' :
+                    item.status === 'racing' ? 'bg-green-500 text-white' :
+                    'bg-gray-600 text-yellow-400'
+                  }`}>
+                    {globalIndex + 1}
                   </div>
-                  <div className="w-px h-10 bg-gray-600"></div>
+
+                  {/* Class Info */}
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-white font-black text-xl">{item.class_id}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white font-black text-lg">{item.class_id}</span>
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full text-white ${
-                        item.round === 'Final' ? 'bg-yellow-500' : item.round === 'Semi Final' ? 'bg-orange-500' : 'bg-gray-600'
+                        item.round.includes('Final') && !item.round.includes('Semi') ? 'bg-yellow-500' :
+                        item.round.includes('Semi') ? 'bg-orange-500' : 'bg-gray-600'
                       }`}>
                         {CLASS_INFO[item.class_id]}
                       </span>
                       <span className="text-gray-400 text-sm">{item.round}</span>
                       {riders.length > 0 && (
-                        <span className="text-gray-500 text-xs">({riders.length} riders)</span>
+                        <span className="text-gray-500 text-xs">· {riders.length} riders</span>
                       )}
                     </div>
                     {item.notes && <p className="text-gray-500 text-xs mt-1">📌 {item.notes}</p>}
                   </div>
-                  <span className={`text-xs font-bold px-3 py-1 rounded-full border ${statusStyle[item.status]}`}>
-                    {statusLabel[item.status]}
-                  </span>
-                  <span className="text-gray-400 text-sm">{isExpanded ? '▲' : '▼'}</span>
+
+                  {/* Status */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                      item.status === 'done' ? 'border-gray-600 text-gray-500' :
+                      item.status === 'racing' ? 'border-green-500 text-green-400 animate-pulse' :
+                      'border-gray-600 text-gray-400'
+                    }`}>
+                      {item.status === 'done' ? '✅ Done' : item.status === 'racing' ? '🏁 Racing' : '⏳ Upcoming'}
+                    </span>
+                    <span className="text-gray-500 text-sm">{isExpanded ? '▲' : '▼'}</span>
+                  </div>
                 </button>
 
+                {/* Expandable Rider List */}
                 {isExpanded && (
-                  <div className="px-6 pb-4 border-t border-gray-600/50 pt-3">
+                  <div className="px-5 pb-4 border-t border-gray-600/50 pt-3">
                     {riders.length === 0 ? (
                       <p className="text-gray-500 text-sm">Daftar pembalap belum tersedia. / Rider list not available yet.</p>
                     ) : (
@@ -174,18 +186,18 @@ const getRidersForEntry = (item) => {
       <div className="text-center mt-8">
         <button onClick={fetchAll}
           className="border border-gray-600 text-gray-400 hover:border-yellow-400 hover:text-yellow-400 px-6 py-2 rounded-full text-sm font-bold transition-colors">
-          🔄 Refresh Schedule
+          🔄 Refresh
         </button>
-        <p className="text-gray-600 text-xs mt-2">Status diperbarui otomatis setiap 15 detik</p>
+        <p className="text-gray-600 text-xs mt-2">Auto-refresh setiap 15 detik</p>
       </div>
 
       {/* Announcement Ticker */}
       {announcement?.active && announcement?.message && (
         <div className="fixed bottom-0 left-0 right-0 bg-yellow-400 text-gray-900 py-3 z-40 overflow-hidden border-t-4 border-gray-900">
           <div className="flex items-center gap-3 px-4 whitespace-nowrap animate-marquee">
-            <span className="font-black flex-shrink-0">📢 PENGUMUMAN / ANNOUNCEMENT:</span>
+            <span className="font-black flex-shrink-0">📢 PENGUMUMAN:</span>
             <span className="font-bold">{announcement.message}</span>
-            <span className="font-black flex-shrink-0 ml-12">📢 PENGUMUMAN / ANNOUNCEMENT:</span>
+            <span className="font-black flex-shrink-0 ml-16">📢 PENGUMUMAN:</span>
             <span className="font-bold">{announcement.message}</span>
           </div>
         </div>
