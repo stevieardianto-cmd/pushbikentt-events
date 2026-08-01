@@ -1114,7 +1114,9 @@ function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState(null)
-  const [activeTab, setActiveTab] = useState('registrations')
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('adminActiveTab') || 'registrations'
+  })
 
   useEffect(() => { fetchRegistrations(); fetchSchedule() }, [])
 
@@ -1199,7 +1201,10 @@ function Dashboard() {
         {/* Tabs */}
         <div className="flex gap-1 mb-8 border-b border-gray-700 overflow-x-auto">
           {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            <button key={tab.id} onClick={() => {
+              setActiveTab(tab.id)
+              localStorage.setItem('adminActiveTab', tab.id)
+            }}
               className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-yellow-400 text-yellow-400' : 'border-transparent text-gray-400 hover:text-white'}`}>
               {tab.label}
             </button>
