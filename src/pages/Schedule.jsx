@@ -54,6 +54,7 @@ function Schedule() {
 
   const statusStyle = {
     upcoming: 'bg-gray-700 border-gray-600',
+    waiting:  'bg-yellow-500/20 border-yellow-500',
     racing:   'bg-green-500/20 border-green-500 animate-pulse',
     done:     'bg-gray-800 border-gray-700 opacity-60',
   }
@@ -73,13 +74,27 @@ function Schedule() {
         <p className="text-gray-400">Race Order · Klik untuk lihat daftar pembalap</p>
       </div>
 
-      {/* Racing Now Banner */}
-      {racingNow.length > 0 && (
+      {/* Racing Now + Waiting Zone Banners */}
+      {schedule.some(s => s.status === 'waiting') && (
+        <div className="bg-yellow-500/20 border-2 border-yellow-500 rounded-2xl p-4 mb-4 text-center">
+          <p className="text-yellow-400 font-black text-lg">🟡 DIPANGGIL KE ZONA TUNGGU / CALLED TO WAITING ZONE</p>
+          {schedule.filter(s => s.status === 'waiting').map(s => (
+            <p key={s.id} className="text-white font-bold text-xl mt-1">
+              {s.class_id} — {CLASS_INFO[s.class_id]} · {s.round}
+            </p>
+          ))}
+          <p className="text-yellow-300 text-sm mt-2 font-bold">
+            ⚠️ Peserta harap segera ke zona tunggu / Riders please proceed to waiting zone
+          </p>
+        </div>
+      )}
+
+      {schedule.some(s => s.status === 'racing') && (
         <div className="bg-green-500/20 border-2 border-green-500 rounded-2xl p-4 mb-6 text-center">
           <p className="text-green-400 font-black text-lg animate-pulse">🏁 SEDANG BERLOMBA / RACING NOW</p>
-          {racingNow.map(r => (
-            <p key={r.id} className="text-white font-bold text-xl mt-1">
-              {r.class_id} — {CLASS_INFO[r.class_id]} · {r.round}
+          {schedule.filter(s => s.status === 'racing').map(s => (
+            <p key={s.id} className="text-white font-bold text-xl mt-1">
+              {s.class_id} — {CLASS_INFO[s.class_id]} · {s.round}
             </p>
           ))}
         </div>
@@ -120,8 +135,9 @@ function Schedule() {
 
                   {/* Order Number */}
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-sm flex-shrink-0 ${
-                    item.status === 'done' ? 'bg-gray-600 text-gray-400' :
-                    item.status === 'racing' ? 'bg-green-500 text-white' :
+                    item.status === 'done'    ? 'bg-gray-600 text-gray-400' :
+                    item.status === 'racing'  ? 'bg-green-500 text-white' :
+                    item.status === 'waiting' ? 'bg-yellow-400 text-gray-900 animate-pulse' :
                     'bg-gray-600 text-yellow-400'
                   }`}>
                     {globalIndex + 1}
@@ -148,11 +164,15 @@ function Schedule() {
                   {/* Status */}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                      item.status === 'done' ? 'border-gray-600 text-gray-500' :
-                      item.status === 'racing' ? 'border-green-500 text-green-400 animate-pulse' :
+                      item.status === 'done'    ? 'border-gray-600 text-gray-500' :
+                      item.status === 'racing'  ? 'border-green-500 text-green-400 animate-pulse' :
+                      item.status === 'waiting' ? 'border-yellow-500 text-yellow-400 animate-pulse' :
                       'border-gray-600 text-gray-400'
                     }`}>
-                      {item.status === 'done' ? '✅ Done' : item.status === 'racing' ? '🏁 Racing' : '⏳ Upcoming'}
+                      {item.status === 'done'    ? '✅ Done' :
+                       item.status === 'racing'  ? '🏁 Racing Now' :
+                       item.status === 'waiting' ? '🟡 Waiting Zone' :
+                       '⏳ Upcoming'}
                     </span>
                     <span className="text-gray-500 text-sm">{isExpanded ? '▲' : '▼'}</span>
                   </div>

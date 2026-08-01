@@ -192,7 +192,7 @@ function ScheduleManager() {
 
   useEffect(() => { fetchData() }, [])
 
-  const fetchData = async () => {
+const fetchData = async () => {
     const [{ data: heatData }, { data: schedData }] = await Promise.all([
       supabase.from('heats').select('class_id, round, heat_number').order('class_id').order('round').order('heat_number'),
       supabase.from('schedule').select('*').order('order_number')
@@ -207,21 +207,28 @@ function ScheduleManager() {
     })
     setHeats(uniqueHeats)
 
-    // Merge heat draw entries + existing schedule entries
     const existing = schedData || []
     const existingKeys = new Set(existing.map(s => `${s.class_id}__${s.round}`))
 
-    // Add heat draw entries not yet in schedule
+    // Only add heats not yet in schedule — use upsert to avoid duplicates
     const toAdd = uniqueHeats.filter(h => !existingKeys.has(`${h.class_id}__${h.round}`))
 
     if (toAdd.length > 0) {
       const maxOrder = existing.length > 0 ? Math.max(...existing.map(s => s.order_number)) : 0
       const newRows = toAdd.map((h, i) => ({
-        class_id: h.class_id, round: h.round,
-        scheduled_time: '', order_number: maxOrder + i + 1,
-        notes: '', status: 'upcoming'
+        class_id: h.class_id,
+        round: h.round,
+        scheduled_time: '',
+        order_number: maxOrder + i + 1,
+        notes: '',
+        status: 'upcoming'
       }))
-      const { data: inserted } = await supabase.from('schedule').insert(newRows).select()
+
+      const { data: inserted, error } = await supabase
+        .from('schedule')
+        .upsert(newRows, { onConflict: 'class_id,round', ignoreDuplicates: true })
+        .select()
+
       setEntries([...existing, ...(inserted || [])])
     } else {
       setEntries(existing)
@@ -447,17 +454,16 @@ function RaceControl() {
     setLoading(false)
   }
 
-  const startRace = async (item) => {
-    await supabase.from('schedule').update({ status: 'racing' }).eq('id', item.id)
+  const updateStatus = async (item, status) => {
+    await supabase.from('schedule').update({ status }).eq('id', item.id)
     fetchSchedule()
   }
 
-const openResults = async (item) => {
+  const openResults = async (item) => {
     setExpandedId(item.id)
     setPositions({})
     setQualified({})
     setMessage('')
-
     const match = item.round.match(/^(Heat|Semi Final|Final) (\d+)$/)
     if (match) {
       const { data } = await supabase.from('heats').select('*')
@@ -468,7 +474,6 @@ const openResults = async (item) => {
         .eq('class_id', item.class_id).eq('qualified', true)
       setRiders([...new Set((data || []).map(r => r.rider_name))].map(n => ({ rider_name: n })))
     }
-
     const { data: existing } = await supabase.from('results').select('*')
       .eq('class_id', item.class_id).eq('round', item.round)
     if (existing?.length > 0) {
@@ -498,87 +503,174 @@ const openResults = async (item) => {
     setSaving(false)
   }
 
-  const statusBadge = {
-    upcoming: 'border-gray-500 text-gray-400',
-    racing:   'border-green-500 text-green-400 bg-green-500/10 animate-pulse',
-    done:     'border-gray-700 text-gray-600'
+  const statusStyle = {
+    upcoming: 'bg-gray-700 border-gray-600',
+    waiting:  'bg-yellow-500/10 border-yellow-500',
+    racing:   'bg-green-500/10 border-green-500',
+    done:     'bg-gray-700/40 border-gray-700 opacity-50'
   }
 
+  const doneCount = schedule.filter(s => s.status === 'done').length
+  const waitingCount = schedule.filter(s => s.status === 'waiting').length
+  const racingCount = schedule.filter(s => s.status === 'racing').length
+
   return (
-    <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
-      <h2 className="text-yellow-400 font-black mb-6">🏁 Race Control & Results</h2>
-
-      {loading ? (
-        <div className="text-center py-12 text-yellow-400 animate-pulse font-bold">Loading...</div>
-      ) : schedule.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
-          <div className="text-4xl mb-3">📅</div>
-          <p className="font-bold text-white">No schedule entries yet.</p>
-          <p className="text-sm mt-2">Go to 📅 Schedule Manager → set times → Save All Times</p>
+    <div className="space-y-4">
+      {/* Live Status Bar */}
+      {(waitingCount > 0 || racingCount > 0) && (
+        <div className="grid grid-cols-2 gap-3">
+          {waitingCount > 0 && (
+            <div className="bg-yellow-500/20 border-2 border-yellow-500 rounded-2xl p-4 text-center">
+              <p className="text-yellow-400 font-black text-sm">🟡 IN WAITING ZONE</p>
+              {schedule.filter(s => s.status === 'waiting').map(s => (
+                <p key={s.id} className="text-white font-bold mt-1">{s.class_id} — {s.round}</p>
+              ))}
+            </div>
+          )}
+          {racingCount > 0 && (
+            <div className="bg-green-500/20 border-2 border-green-500 rounded-2xl p-4 text-center animate-pulse">
+              <p className="text-green-400 font-black text-sm">🏁 RACING NOW</p>
+              {schedule.filter(s => s.status === 'racing').map(s => (
+                <p key={s.id} className="text-white font-bold mt-1">{s.class_id} — {s.round}</p>
+              ))}
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="space-y-3">
-          {schedule.map(item => (
-            <div key={item.id} className={`rounded-xl border transition-colors overflow-hidden ${expandedId === item.id ? 'border-yellow-400' : 'border-gray-600'}`}>
-              <div className="bg-gray-700 px-5 py-3 flex justify-between items-center flex-wrap gap-3">
-                <div>
-                  <span className="text-white font-black text-lg mr-3">{item.class_id}</span>
-                  <span className="text-gray-400 text-sm">{CLASS_INFO[item.class_id]} · {item.round}</span>
-                </div>
-                <div className="flex gap-2 items-center">
-                  <span className={`text-xs font-bold px-3 py-1.5 rounded-full border ${statusBadge[item.status]}`}>
-                    {item.status === 'upcoming' ? '⏳ Upcoming' : item.status === 'racing' ? '🏁 Racing' : '✅ Done'}
-                  </span>
-                  {item.status === 'upcoming' && (
-                    <button onClick={() => startRace(item)}
-                      className="bg-green-500 text-white font-bold px-4 py-1.5 rounded-full text-xs hover:bg-green-600 transition-colors">
-                      🏁 Start Race
-                    </button>
-                  )}
-                  {item.status === 'racing' && (
-                    <button onClick={() => expandedId === item.id ? closeResults() : openResults(item)}
-                      className="bg-yellow-400 text-gray-900 font-bold px-4 py-1.5 rounded-full text-xs hover:bg-yellow-300 transition-colors">
-                      {expandedId === item.id ? '▲ Close' : '✅ Done — Enter Results'}
-                    </button>
-                  )}
-                  {item.status === 'done' && (
-                    <button onClick={() => expandedId === item.id ? closeResults() : openResults(item)}
-                      className="border border-gray-500 text-gray-300 font-bold px-4 py-1.5 rounded-full text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors">
-                      {expandedId === item.id ? '▲ Close' : '✏️ Edit Results'}
-                    </button>
-                  )}
-                </div>
-              </div>
+      )}
 
-              {expandedId === item.id && (
-                <div className="bg-gray-800 px-5 py-5 border-t border-gray-600">
-                  {message && (
-                    <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                      {message}
+      <div className="bg-gray-800 rounded-2xl p-6 border border-gray-700">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-yellow-400 font-black">🏁 Race Control & Results</h2>
+          {schedule.length > 0 && (
+            <span className="text-gray-400 text-xs font-bold">
+              {doneCount}/{schedule.length} done
+            </span>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="text-center py-12 text-yellow-400 animate-pulse font-bold">Loading...</div>
+        ) : schedule.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            <div className="text-4xl mb-3">📅</div>
+            <p className="font-bold text-white">No schedule entries yet.</p>
+            <p className="text-sm mt-2">Go to 📋 Schedule Manager first.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {schedule.map(item => (
+              <div key={item.id}
+                className={`rounded-xl border-2 overflow-hidden transition-colors ${statusStyle[item.status] || statusStyle.upcoming}`}>
+
+                {/* Row Header */}
+                <div className="px-5 py-3 flex justify-between items-center flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                      item.status === 'done' ? 'bg-gray-500' :
+                      item.status === 'racing' ? 'bg-green-500 animate-pulse' :
+                      item.status === 'waiting' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-600'
+                    }`} />
+                    <div>
+                      <span className="text-white font-black text-base">{item.class_id}</span>
+                      <span className="text-gray-400 text-sm ml-2">{CLASS_INFO[item.class_id]} · {item.round}</span>
                     </div>
-                  )}
-                  {riders.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
-                      <div className="text-3xl mb-2">👶</div>
-                      <p>No riders found for this heat.</p>
-                      <p className="text-xs mt-1">Check 🎲 Heat Draw for {item.class_id}.</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-2 mb-4">
-                        <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
-                          <div className="col-span-1">#</div>
-                          <div className="col-span-6">Rider Name</div>
-                          <div className="col-span-3">Finish Pos.</div>
-                          <div className="col-span-2">Qualified</div>
-                        </div>
-                        {riders.map((rider, idx) => (
-                          <div key={rider.rider_name || idx}
-                            className={`grid grid-cols-12 gap-3 items-center rounded-xl px-3 py-3 border transition-colors ${positions[rider.rider_name] ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-gray-700'}`}>
-                            <div className="col-span-1 text-gray-500 text-sm font-bold">{idx+1}</div>
-                            <div className="col-span-6 text-white font-bold">{rider.rider_name}</div>
-                            <div className="col-span-3">
-                              <select value={positions[rider.rider_name] || ''} onChange={e => setPositions(p => ({...p, [rider.rider_name]: e.target.value}))}
+                  </div>
+
+                  <div className="flex gap-2 items-center flex-wrap">
+                    {/* Status Badge */}
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                      item.status === 'done'    ? 'border-gray-600 text-gray-400' :
+                      item.status === 'racing'  ? 'border-green-500 text-green-400' :
+                      item.status === 'waiting' ? 'border-yellow-500 text-yellow-400' :
+                      'border-gray-600 text-gray-400'
+                    }`}>
+                      {item.status === 'done' ? '✅ Done' :
+                       item.status === 'racing' ? '🏁 Racing' :
+                       item.status === 'waiting' ? '🟡 Waiting Zone' :
+                       '⏳ Upcoming'}
+                    </span>
+
+                    {/* Action Buttons based on status */}
+                    {item.status === 'upcoming' && (
+                      <button onClick={() => updateStatus(item, 'waiting')}
+                        className="bg-yellow-400 text-gray-900 font-bold px-4 py-1.5 rounded-full text-xs hover:bg-yellow-300 transition-colors">
+                        🟡 Call to Waiting Zone
+                      </button>
+                    )}
+
+                    {item.status === 'waiting' && (
+                      <>
+                        <button onClick={() => updateStatus(item, 'upcoming')}
+                          className="border border-gray-500 text-gray-300 font-bold px-3 py-1.5 rounded-full text-xs hover:border-gray-300 transition-colors">
+                          ↩ Undo
+                        </button>
+                        <button onClick={() => updateStatus(item, 'racing')}
+                          className="bg-green-500 text-white font-bold px-4 py-1.5 rounded-full text-xs hover:bg-green-600 transition-colors">
+                          🏁 Start Race
+                        </button>
+                      </>
+                    )}
+
+                    {item.status === 'racing' && (
+                      <>
+                        <button onClick={() => updateStatus(item, 'waiting')}
+                          className="border border-gray-500 text-gray-300 font-bold px-3 py-1.5 rounded-full text-xs hover:border-gray-300 transition-colors">
+                          ↩ Undo
+                        </button>
+                        <button onClick={() => expandedId === item.id ? closeResults() : openResults(item)}
+                          className="bg-yellow-400 text-gray-900 font-bold px-4 py-1.5 rounded-full text-xs hover:bg-yellow-300 transition-colors">
+                          {expandedId === item.id ? '▲ Close' : '✅ Done — Enter Results'}
+                        </button>
+                      </>
+                    )}
+
+                    {item.status === 'done' && (
+                      <>
+                        <button onClick={() => updateStatus(item, 'racing')}
+                          className="border border-gray-500 text-gray-400 font-bold px-3 py-1.5 rounded-full text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors">
+                          ↩ Undo
+                        </button>
+                        <button onClick={() => expandedId === item.id ? closeResults() : openResults(item)}
+                          className="border border-gray-500 text-gray-300 font-bold px-3 py-1.5 rounded-full text-xs hover:border-yellow-400 hover:text-yellow-400 transition-colors">
+                          {expandedId === item.id ? '▲ Close' : '✏️ Edit Results'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Results Entry Panel */}
+                {expandedId === item.id && (
+                  <div className="bg-gray-900 px-5 py-5 border-t border-gray-700">
+                    {message && (
+                      <div className={`rounded-xl p-3 mb-4 text-sm font-bold ${message.startsWith('✅') ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {message}
+                      </div>
+                    )}
+                    {riders.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <div className="text-3xl mb-2">👶</div>
+                        <p>No riders found for this heat.</p>
+                        <p className="text-xs mt-1">Check 🎲 Heat Draw for {item.class_id}.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2 mb-4">
+                          <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+                            <div className="col-span-1">#</div>
+                            <div className="col-span-6">Rider Name</div>
+                            <div className="col-span-3">Finish Pos.</div>
+                            <div className="col-span-2">Qualified</div>
+                          </div>
+                          {riders.map((rider, idx) => (
+                            <div key={rider.rider_name || idx}
+                              className={`grid grid-cols-12 gap-3 items-center rounded-xl px-3 py-3 border ${positions[rider.rider_name] ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-gray-700'}`}>
+                              <div className="col-span-1 text-gray-500 text-sm font-bold">{idx+1}</div>
+                              <div className="col-span-6 text-white font-bold">{rider.rider_name}</div>
+                              <div className="col-span-3">
+                                <select value={positions[rider.rider_name] || ''}
+                                  onChange={e => setPositions(p => ({...p, [rider.rider_name]: e.target.value}))}
                                   className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
                                   <option value="">— Rank —</option>
                                   {riders.map((_, i) => {
@@ -587,30 +679,32 @@ const openResults = async (item) => {
                                     if (usedByOther) return null
                                     return <option key={i+1} value={posValue}>{i===0?'🥇 1st':i===1?'🥈 2nd':i===2?'🥉 3rd':`#${i+1}`}</option>
                                   })}
-                                </select>                            </div>
-                            <div className="col-span-2">
-                              <label className="flex items-center gap-1.5 cursor-pointer">
-                                <input type="checkbox" checked={qualified[rider.rider_name] || false}
-                                  onChange={e => setQualified(p => ({...p, [rider.rider_name]: e.target.checked}))}
-                                  className="w-4 h-4 accent-yellow-400" />
-                                <span className="text-green-400 text-xs font-bold">QF</span>
-                              </label>
+                                </select>
+                              </div>
+                              <div className="col-span-2">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input type="checkbox" checked={qualified[rider.rider_name] || false}
+                                    onChange={e => setQualified(p => ({...p, [rider.rider_name]: e.target.checked}))}
+                                    className="w-4 h-4 accent-yellow-400" />
+                                  <span className="text-green-400 text-xs font-bold">QF</span>
+                                </label>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                      <button onClick={() => saveResults(item)} disabled={saving}
-                        className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
-                        {saving ? '⏳ Saving...' : '💾 Save Results & Mark Done'}
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+                          ))}
+                        </div>
+                        <button onClick={() => saveResults(item)} disabled={saving}
+                          className="w-full bg-yellow-400 text-gray-900 font-black py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
+                          {saving ? '⏳ Saving...' : '💾 Save Results & Mark Done'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -676,28 +770,44 @@ const loadClass = async (cls, round) => {
   const removeRider = (name) => { setAssignments(p => { const u = {...p}; delete u[name]; return u }) }
 
 const saveAll = async () => {
+    const toSave = Object.entries(assignments).filter(([_, v]) => v.heat)
+    if (toSave.length === 0) { showMessage('❌ No riders assigned to any heat!'); return }
     setSaving(true)
-    let saved = 0
-    for (const [key, val] of Object.entries(assignments)) {
-      if (!val.time) continue
-      const [class_id, round] = key.split('__')
-      if (val.id) {
-        // Update existing entry — do NOT touch status (Race Control owns that field)
-        const { error } = await supabase.from('schedule').update({
-          class_id, round, scheduled_time: val.time, order_number: parseInt(val.order) || 999, notes: val.notes || null
-        }).eq('id', val.id)
-        if (!error) saved++
-      } else {
-        // New entry — safe to default status
-        const { data: newEntry, error } = await supabase.from('schedule').insert({
-          class_id, round, scheduled_time: val.time, order_number: parseInt(val.order) || 999, notes: val.notes || null, status: 'upcoming'
-        }).select().single()
-        if (!error) { saved++; setAssignments(p => ({ ...p, [key]: { ...p[key], id: newEntry.id } })) }
-      }
+    
+    // Step 1: Delete existing
+    const { error: delError } = await supabase.from('heats')
+      .delete().eq('class_id', selectedClass).eq('round', selectedRound)
+    if (delError) {
+      showMessage('❌ Delete error: ' + delError.message)
+      setSaving(false)
+      return
     }
-    showMsg(`✅ Saved ${saved} entries!`)
+
+    // Step 2: Build rows
+    const heatCounters = {}
+    const rows = toSave
+      .sort(([_a, a], [_b, b]) => parseInt(a.heat) - parseInt(b.heat))
+      .map(([name, val]) => {
+        const h = parseInt(val.heat)
+        heatCounters[h] = (heatCounters[h] || 0) + 1
+        return {
+          class_id: selectedClass,
+          round: selectedRound,
+          heat_number: h,
+          rider_name: name,
+          lane: heatCounters[h]
+        }
+      })
+
+    // Step 3: Insert
+    const { data: inserted, error: insError } = await supabase.from('heats').insert(rows).select()
+    if (insError) {
+      showMessage('❌ Insert error: ' + insError.message)
+    } else {
+      showMessage(`✅ Saved ${inserted?.length || rows.length} riders for ${selectedClass} ${selectedRound}!`)
+      loadClass(selectedClass, selectedRound)
+    }
     setSaving(false)
-    fetchData()
   }
 
 const clearClass = async () => {
