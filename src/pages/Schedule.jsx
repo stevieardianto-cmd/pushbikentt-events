@@ -178,21 +178,72 @@ function Schedule() {
                   </div>
                 </button>
 
-                {/* Expandable Rider List */}
+                {/* Expandable Section */}
                 {isExpanded && (
-                  <div className="px-5 pb-4 border-t border-gray-600/50 pt-3">
-                    {riders.length === 0 ? (
-                      <p className="text-gray-500 text-sm">Daftar pembalap belum tersedia. / Rider list not available yet.</p>
-                    ) : (
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {riders.map((name, i) => (
-                          <div key={i} className="bg-gray-800/60 rounded-lg px-3 py-2 flex items-center gap-2">
-                            <span className="w-5 h-5 bg-yellow-400 text-gray-900 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0">
-                              {i + 1}
-                            </span>
-                            <span className="text-white text-sm font-bold truncate">{name}</span>
+                  <div className="px-5 pb-4 border-t border-gray-600/50 pt-4">
+                    {item.status === 'done' ? (
+                      /* Show Results if race is done */
+                      (() => {
+                        const raceResults = results
+                          .filter(r => r.class_id === item.class_id && r.round === item.round)
+                          .sort((a, b) => a.position - b.position)
+                        return raceResults.length === 0 ? (
+                          <p className="text-gray-500 text-sm">Hasil belum tersedia. / Results not available yet.</p>
+                        ) : (
+                          <div>
+                            <p className="text-yellow-400 font-black text-xs mb-3 tracking-widest">🏆 HASIL / RESULTS</p>
+                            <div className="space-y-2">
+                              {raceResults.map((r, i) => (
+                                <div key={r.id}
+                                  className={`flex items-center gap-3 rounded-xl px-4 py-2.5 ${
+                                    r.position === 1 ? 'bg-yellow-400/20 border border-yellow-400' :
+                                    r.position === 2 ? 'bg-gray-400/10 border border-gray-400' :
+                                    r.position === 3 ? 'bg-orange-400/10 border border-orange-400' :
+                                    'bg-gray-700/60 border border-gray-600'
+                                  }`}>
+                                  <span className="text-xl flex-shrink-0">
+                                    {r.position === 1 ? '🥇' : r.position === 2 ? '🥈' : r.position === 3 ? '🥉' : `#${r.position}`}
+                                  </span>
+                                  <span className="text-white font-bold flex-1">{r.rider_name}</span>
+                                  {r.qualified && (
+                                    <span className="bg-green-500/20 border border-green-500 text-green-400 text-xs font-black px-2 py-0.5 rounded-full flex-shrink-0">
+                                      ✅ LOLOS / QUALIFIED
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
+                        )
+                      })()
+                    ) : (
+                      /* Show Rider List if race is upcoming/waiting/racing */
+                      <div>
+                        {item.status === 'waiting' && (
+                          <p className="text-yellow-400 font-bold text-xs mb-3 animate-pulse">
+                            🟡 Peserta ini sedang dipanggil ke zona tunggu!
+                          </p>
+                        )}
+                        {item.status === 'racing' && (
+                          <p className="text-green-400 font-bold text-xs mb-3 animate-pulse">
+                            🏁 Sedang berlomba sekarang!
+                          </p>
+                        )}
+                        <p className="text-gray-400 font-black text-xs mb-3 tracking-widest">👶 DAFTAR PEMBALAP / RIDERS</p>
+                        {riders.length === 0 ? (
+                          <p className="text-gray-500 text-sm">Daftar pembalap belum tersedia. / Rider list not available yet.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            {riders.map((name, i) => (
+                              <div key={i} className="bg-gray-800/60 rounded-lg px-3 py-2 flex items-center gap-2">
+                                <span className="w-5 h-5 bg-yellow-400 text-gray-900 rounded-full flex items-center justify-center font-black text-xs flex-shrink-0">
+                                  {i + 1}
+                                </span>
+                                <span className="text-white text-sm font-bold truncate">{name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
