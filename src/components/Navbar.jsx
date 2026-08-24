@@ -6,7 +6,8 @@ const navLinks = [
   { to: '/classes',  label: '🏷️ Classes' },
   { to: '/register', label: '📝 Register' },
   { to: '/schedule', label: '📅 Schedule' },
-  { to: '/heats',    label: '🎲 Heat Draw' },
+  { to: '/draw',     label: '🎲 Live Draw' },
+  { to: '/heats',    label: '🎯 Heat List' },
   { to: '/results',  label: '🏆 Results' },
   { to: '/gallery',  label: '📸 Gallery' },
   { to: '/history',  label: '📖 History' },
@@ -74,11 +75,16 @@ function Navbar() {
               {label}
             </Link>
           ))}
-          <div className="pt-2 border-t border-gray-700">
+          <div className="pt-2 border-t border-gray-700 space-y-2">
             <Link to="/register"
               onClick={() => setMenuOpen(false)}
               className="flex items-center justify-center gap-2 bg-yellow-400 text-gray-900 font-black px-4 py-3 rounded-xl text-sm hover:bg-yellow-300 transition-colors">
               🏁 DAFTAR SEKARANG / REGISTER NOW
+            </Link>
+            <Link to="/admin"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center justify-center gap-2 border border-gray-600 text-gray-400 font-bold px-4 py-3 rounded-xl text-sm hover:border-yellow-400 hover:text-yellow-400 transition-colors">
+              🔐 Admin Login
             </Link>
           </div>
         </div>

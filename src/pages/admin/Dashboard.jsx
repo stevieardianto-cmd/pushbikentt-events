@@ -950,6 +950,10 @@ const clearClass = async () => {
             <button onClick={saveAll} disabled={saving} className="bg-yellow-400 text-gray-900 font-black px-8 py-3 rounded-xl hover:bg-yellow-300 transition-colors disabled:opacity-50">
               {saving ? '⏳ Saving...' : '💾 Save Heat Draw'}
             </button>
+              <a href="/draw" target="_blank"
+                className="border border-yellow-400 text-yellow-400 font-bold px-4 py-3 rounded-xl hover:bg-yellow-400 hover:text-gray-900 transition-colors text-sm">
+                🎲 Open Live Draw Page
+              </a>
             {savedHeats.length > 0 && (
               <>
                 <button onClick={() => exportHeatDrawPDF(savedHeats, selectedClass)} className="border border-blue-400 text-blue-400 font-bold px-4 py-3 rounded-xl hover:bg-blue-400 hover:text-white transition-colors text-sm">
@@ -1222,6 +1226,7 @@ function Dashboard() {
               🚪
             </button>
           </div>
+        </div>
       </nav>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
