@@ -248,7 +248,7 @@ function Register() {
                 (boleh lebih dari satu / can select multiple)
               </span>
             </label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
               {CLASSES.map(({ id, label }) => (
                 <button key={id} type="button"
                   onClick={() => toggleClass(index, id)}

@@ -563,7 +563,7 @@ function RaceControl() {
                 className={`rounded-xl border-2 overflow-hidden transition-colors ${statusStyle[item.status] || statusStyle.upcoming}`}>
 
                 {/* Row Header */}
-                <div className="px-5 py-3 flex justify-between items-center flex-wrap gap-3">
+                <div className="px-4 py-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                   <div className="flex items-center gap-3">
                     <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                       item.status === 'done' ? 'bg-gray-500' :
@@ -577,7 +577,7 @@ function RaceControl() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 items-center flex-wrap">
+                  <div className="flex gap-2 items-center flex-wrap justify-end">
                     {/* Status Badge */}
                     <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
                       item.status === 'done'    ? 'border-gray-600 text-gray-400' :
@@ -657,7 +657,7 @@ function RaceControl() {
                     ) : (
                       <>
                         <div className="space-y-2 mb-4">
-                          <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+                          <div className="hidden sm:grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
                             <div className="col-span-1">#</div>
                             <div className="col-span-6">Rider Name</div>
                             <div className="col-span-3">Finish Pos.</div>
@@ -665,29 +665,54 @@ function RaceControl() {
                           </div>
                           {riders.map((rider, idx) => (
                             <div key={rider.rider_name || idx}
-                              className={`grid grid-cols-12 gap-3 items-center rounded-xl px-3 py-3 border ${positions[rider.rider_name] ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-gray-700'}`}>
-                              <div className="col-span-1 text-gray-500 text-sm font-bold">{idx+1}</div>
-                              <div className="col-span-6 text-white font-bold">{rider.rider_name}</div>
-                              <div className="col-span-3">
+                              className={`rounded-xl px-3 py-3 border ${positions[rider.rider_name] ? 'bg-gray-700 border-gray-600' : 'bg-gray-700/50 border-gray-700'}`}>
+                              {/* Mobile */}
+                              <div className="flex items-center gap-3 sm:hidden">
+                                <span className="text-gray-500 text-xs font-bold w-5">{idx+1}</span>
+                                <span className="text-white font-bold text-sm flex-1 truncate">{rider.rider_name}</span>
                                 <select value={positions[rider.rider_name] || ''}
                                   onChange={e => setPositions(p => ({...p, [rider.rider_name]: e.target.value}))}
-                                  className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
-                                  <option value="">— Rank —</option>
+                                  className="bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-yellow-400">
+                                  <option value="">—</option>
                                   {riders.map((_, i) => {
                                     const posValue = String(i+1)
                                     const usedByOther = Object.entries(positions).some(([name, val]) => name !== rider.rider_name && val === posValue)
                                     if (usedByOther) return null
-                                    return <option key={i+1} value={posValue}>{i===0?'🥇 1st':i===1?'🥈 2nd':i===2?'🥉 3rd':`#${i+1}`}</option>
+                                    return <option key={i+1} value={posValue}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`}</option>
                                   })}
                                 </select>
-                              </div>
-                              <div className="col-span-2">
-                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                <label className="flex items-center gap-1 cursor-pointer flex-shrink-0">
                                   <input type="checkbox" checked={qualified[rider.rider_name] || false}
                                     onChange={e => setQualified(p => ({...p, [rider.rider_name]: e.target.checked}))}
                                     className="w-4 h-4 accent-yellow-400" />
                                   <span className="text-green-400 text-xs font-bold">QF</span>
                                 </label>
+                              </div>
+                              {/* Desktop */}
+                              <div className="hidden sm:grid grid-cols-12 gap-3 items-center">
+                                <div className="col-span-1 text-gray-500 text-sm font-bold">{idx+1}</div>
+                                <div className="col-span-6 text-white font-bold">{rider.rider_name}</div>
+                                <div className="col-span-3">
+                                  <select value={positions[rider.rider_name] || ''}
+                                    onChange={e => setPositions(p => ({...p, [rider.rider_name]: e.target.value}))}
+                                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                                    <option value="">— Rank —</option>
+                                    {riders.map((_, i) => {
+                                      const posValue = String(i+1)
+                                      const usedByOther = Object.entries(positions).some(([name, val]) => name !== rider.rider_name && val === posValue)
+                                      if (usedByOther) return null
+                                      return <option key={i+1} value={posValue}>{i===0?'🥇 1st':i===1?'🥈 2nd':i===2?'🥉 3rd':`#${i+1}`}</option>
+                                    })}
+                                  </select>
+                                </div>
+                                <div className="col-span-2">
+                                  <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="checkbox" checked={qualified[rider.rider_name] || false}
+                                      onChange={e => setQualified(p => ({...p, [rider.rider_name]: e.target.checked}))}
+                                      className="w-4 h-4 accent-yellow-400" />
+                                    <span className="text-green-400 text-xs font-bold">QF</span>
+                                  </label>
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -879,26 +904,42 @@ const clearClass = async () => {
             )}
           </div>
         ) : (          <div className="space-y-2">
-            <div className="grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
+            <div className="hidden sm:grid grid-cols-12 gap-3 px-3 py-2 text-gray-500 text-xs font-bold uppercase">
               <div className="col-span-8">Rider Name</div>
               <div className="col-span-3">Heat #</div>
               <div className="col-span-1"></div>
             </div>
             {riders.map(name => (
-              <div key={name} className={`grid grid-cols-12 gap-3 items-center bg-gray-700 rounded-xl px-3 py-2 border transition-colors ${assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'}`}>
-                <div className="col-span-8">
-                  <p className="text-white font-bold text-sm">{name}</p>
-                  {!assignments[name].heat && <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>}
-                </div>
-                <div className="col-span-3">
+              <div key={name} className={`bg-gray-700 rounded-xl px-3 py-3 border transition-colors ${assignments[name].heat ? 'border-gray-600' : 'border-yellow-400/30'}`}>
+                {/* Mobile layout */}
+                <div className="flex items-center gap-3 sm:hidden">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-bold text-sm truncate">{name}</p>
+                    {!assignments[name].heat && <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>}
+                  </div>
                   <select value={assignments[name]?.heat || ''} onChange={e => updateAssignment(name, e.target.value)}
-                    className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
-                    <option value="">— Pick —</option>
-                    {Array.from({ length: heatCount }, (_, i) => i+1).map(n => <option key={n} value={String(n)}>Heat {n}</option>)}
+                    className="bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                    <option value="">—</option>
+                    {Array.from({ length: heatCount }, (_, i) => i+1).map(n => <option key={n} value={String(n)}>H{n}</option>)}
                   </select>
+                  <button onClick={() => removeRider(name)} className="text-red-400 text-sm flex-shrink-0">✕</button>
                 </div>
-                <div className="col-span-1 flex justify-center">
-                  <button onClick={() => removeRider(name)} className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                {/* Desktop layout */}
+                <div className="hidden sm:grid grid-cols-12 gap-3 items-center">
+                  <div className="col-span-8">
+                    <p className="text-white font-bold text-sm">{name}</p>
+                    {!assignments[name].heat && <p className="text-yellow-400 text-xs">⚠️ Unassigned</p>}
+                  </div>
+                  <div className="col-span-3">
+                    <select value={assignments[name]?.heat || ''} onChange={e => updateAssignment(name, e.target.value)}
+                      className="w-full bg-gray-600 border border-gray-500 rounded-lg px-2 py-1.5 text-white text-sm focus:outline-none focus:border-yellow-400">
+                      <option value="">— Pick —</option>
+                      {Array.from({ length: heatCount }, (_, i) => i+1).map(n => <option key={n} value={String(n)}>Heat {n}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-span-1 flex justify-center">
+                    <button onClick={() => removeRider(name)} className="text-red-400 hover:text-red-300 transition-colors text-sm">✕</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1162,10 +1203,7 @@ function Dashboard() {
             <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain" />
             <div><h1 className="text-yellow-400 font-black text-sm">ADMIN PANEL</h1><p className="text-gray-400 text-xs">Pushbike Kupang-NTT</p></div>
           </div>
-          <div className="flex items-center gap-3">
-            <Link to="/" className="text-xs font-bold border border-gray-500 text-gray-300 px-3 py-1.5 rounded-full hover:border-white hover:text-white transition-colors">
-              🏠 Home
-            </Link>
+          <div className="flex items-center gap-2">
             <span className="text-gray-300 text-sm hidden md:block">
               👤 {adminRole?.name}
               <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-bold ${adminRole?.role === 'super_admin' ? 'bg-yellow-400 text-gray-900' : 'bg-gray-700 text-gray-300'}`}>
@@ -1173,17 +1211,17 @@ function Dashboard() {
               </span>
             </span>
             {adminRole?.role === 'super_admin' && (
-              <Link to="/admin/manage" className="text-xs font-bold border border-yellow-400 text-yellow-400 px-3 py-1.5 rounded-full hover:bg-yellow-400 hover:text-gray-900 transition-colors">
+              <Link to="/admin/manage" className="hidden md:block text-xs font-bold border border-yellow-400 text-yellow-400 px-3 py-1.5 rounded-full hover:bg-yellow-400 hover:text-gray-900 transition-colors">
                 👥 Manage Admins
               </Link>
             )}
             <button onClick={() => setShowChangePassword(true)} className="text-xs font-bold border border-blue-400 text-blue-400 px-3 py-1.5 rounded-full hover:bg-blue-400 hover:text-white transition-colors">
-              🔑 Password
+              🔑
             </button>
             <button onClick={handleSignOut} className="text-xs font-bold border border-red-400 text-red-400 px-3 py-1.5 rounded-full hover:bg-red-400 hover:text-white transition-colors">
-              🚪 Logout
-            </button>          </div>
-        </div>
+              🚪
+            </button>
+          </div>
       </nav>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
@@ -1198,17 +1236,34 @@ function Dashboard() {
           ))}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-8 border-b border-gray-700 overflow-x-auto">
-          {tabs.map(tab => (
-            <button key={tab.id} onClick={() => {
-              setActiveTab(tab.id)
-              localStorage.setItem('adminActiveTab', tab.id)
-            }}
-              className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-yellow-400 text-yellow-400' : 'border-transparent text-gray-400 hover:text-white'}`}>
-              {tab.label}
-            </button>
-          ))}
+        {/* Tabs — Dropdown on mobile, horizontal on desktop */}
+        <div className="mb-8">
+          {/* Mobile Dropdown */}
+          <div className="md:hidden">
+            <select
+              value={activeTab}
+              onChange={e => {
+                setActiveTab(e.target.value)
+                localStorage.setItem('adminActiveTab', e.target.value)
+              }}
+              className="w-full bg-gray-800 border-2 border-yellow-400 rounded-xl px-4 py-3 text-white font-bold text-sm focus:outline-none">
+              {tabs.map(tab => (
+                <option key={tab.id} value={tab.id}>{tab.label}</option>
+              ))}
+            </select>
+          </div>
+          {/* Desktop Tabs */}
+          <div className="hidden md:flex gap-1 border-b border-gray-700 overflow-x-auto">
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => {
+                setActiveTab(tab.id)
+                localStorage.setItem('adminActiveTab', tab.id)
+              }}
+                className={`px-4 py-3 font-bold text-sm border-b-2 transition-colors whitespace-nowrap ${activeTab === tab.id ? 'border-yellow-400 text-yellow-400' : 'border-transparent text-gray-400 hover:text-white'}`}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {activeTab === 'bulkimport'   && <BulkImport />}

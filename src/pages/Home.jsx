@@ -36,7 +36,7 @@ function Home() {
         </p>
 
         {/* Countdown */}
-        <div className="flex justify-center gap-4 mb-10">
+        <div className="flex justify-center gap-2 mb-10">
           {[
             { label: 'Days', value: timeLeft.days },
             { label: 'Hours', value: timeLeft.hours },
